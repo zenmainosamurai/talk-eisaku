@@ -704,6 +704,24 @@ const TTS = {
 };
 const speakBtn = text => h("button", { class: "icon-btn", type: "button", "aria-label": "読み上げる", html: ICON.speak, onclick: () => TTS.speak(text) });
 
+// 発音しない要素（lol・haha・絵文字・顔文字など）を取り除く
+function speakable(s) {
+  if (!s) return s;
+  let t = String(s)
+    .replace(/[\p{Extended_Pictographic}\uFE0F\u200D]/gu, "")
+    .replace(/(^|\s)[:;=xX8][-^']?[)(DPpO3\]\[\/\\|*]+(?=$|\s|[.,!?])/g, "$1")
+    .replace(/(^|[\s(])\(?(?:lol+|lmao+|lmfao|rofl|ha(?:ha)+h?|he(?:he)+|ha(?: ha)+|xd)\)?(?=$|[\s.,!?)])/gi, "$1")
+    .replace(/(^|\s)[wｗ]{2,}(?=$|\s)/g, "$1")
+    .replace(/\(\s*\)/g, "")
+    .replace(/\s+([.,!?])/g, "$1")
+    .replace(/,\s*([.!?])/g, "$1")
+    .replace(/^[\s,.;:!]+/, "")
+    .replace(/[\s,;:]+$/, "")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+  if (!t) return String(s).trim();
+  return t.charAt(0).toUpperCase() + t.slice(1);
+}
 /* ============ 採点（Claude API） ============ */
 const MODELS = { "claude-haiku-5-5": "Claude Haiku 5.5（速い・安い）", "claude-sonnet-5-5": "Claude Sonnet 5.5（より丁寧）" };
 async function callClaude(prompt, maxTokens = 2000) {
@@ -751,21 +769,21 @@ function contextBlock(item) {
 }
 function buildPrompt(item, answer, ref) {
   return [
-    "You are an English coach for a Japanese adult. They practice saying their OWN real LINE messages (casual texts to a friend) in natural English.",
+    "You are an English coach for a Japanese adult. They practice SAYING their OWN real LINE messages (casual texts to a friend) out loud in natural spoken English.",
     "",
     contextBlock(item) + "Japanese message they actually sent:",
     "<<<" + item.ja + ">>>",
     "",
-    ref ? "Model answer they were shown before (keep it as the model answer unless it is clearly wrong or unnatural):\n<<<" + ref + ">>>\n" : "",
+    ref ? "Model answer they were shown before (keep it as the model answer unless it is clearly wrong or unnatural; drop any text-only parts such as lol, haha or emoji, and spell out texting abbreviations such as tmrw):\n<<<" + ref + ">>>\n" : "",
     "Their English attempt (it may come from speech recognition, so ignore capitalization, punctuation and obvious mishearings):",
     "<<<" + (answer || "(no attempt: they gave up and want to see the answer)") + ">>>",
     "",
     "Do this:",
-    "1. model: the most natural casual English text a native speaker would send a friend with the same meaning and tone. Keep it short like a real text. Render 笑 / (笑) / w as lol or haha only where natural. Write Japanese names in romaji.",
-    "2. alts: 1-2 other natural ways to say it, worded differently.",
+    "1. model: the most natural casual English a native speaker would say to a friend with the same meaning and tone, as if saying this message out loud. Keep it short. This app is for SPEAKING practice, so write only words that are actually pronounced: no lol, lmao, haha, emoji, emoticons or other text-only markers, and spell out texting abbreviations (by the way, not btw; I don't know, not idk). Do not translate 笑 / (笑) / w or stickers; if the laugh carries meaning, convey it with spoken words instead (for example I'm kidding, or that's hilarious). Write Japanese names in romaji.",
+    "2. alts: 1-2 other natural ways to say it, worded differently, following the same speaking-only rule.",
     "3. verdict: judge ONLY whether the meaning gets across. \"correct\" if an English-speaking friend would understand what they meant at that point in the conversation, even if it is worded differently from the model, has grammar mistakes, or sounds unnatural. \"close\" if the main point comes through but an important part is missing or slightly off. \"wrong\" if the meaning does not come through, it is not English, or there is no attempt.",
     "4. feedback: 1-2 short sentences IN JAPANESE about whether the meaning came through (and which part was missing or off, if any). Do not comment on grammar or naturalness here. If there is no attempt, explain the key point of the model answer.",
-    "5. natural: if native speakers would more typically say what the learner said in a different way, write that version. Stay as close as possible to the learner's own wording and change only what natives would phrase differently. Natural means what natives actually prefer to say in casual texts, NOT grammatical correctness: do not change something only to fix grammar if natives commonly say it that way (dropped subjects, fragments and contractions are fine), and a grammatically perfect sentence can still be unnatural. Use an empty string if the attempt already sounds like what a native would text, if the verdict is wrong, or if there is no attempt.",
+    "5. natural: if native speakers would more typically say what the learner said in a different way, write that version. Stay as close as possible to the learner's own wording and change only what natives would phrase differently. Natural means what natives actually prefer to say in casual texts, NOT grammatical correctness: do not change something only to fix grammar if natives commonly say it that way (dropped subjects, fragments and contractions are fine), and a grammatically perfect sentence can still be unnatural. Follow the speaking-only rule: never add lol, haha or emoji, and do not suggest a change only because the attempt left them out. Use an empty string if the attempt already sounds like what a native would say, if the verdict is wrong, or if there is no attempt.",
     "6. natural_why: if natural is not empty, 1 short sentence IN JAPANESE on why natives prefer it (for example, which word sounds stiff or textbook-like and what natives say instead). Otherwise an empty string.",
     "7. phrase: one reusable expression from the model answer; phrase_ja: its meaning in Japanese.",
     "",
@@ -778,26 +796,26 @@ async function grade(item, answer, ref) {
   if (!r || typeof r.model !== "string" || !r.model.trim()) throw { code: "invalid_json" };
   const str = v => (typeof v === "string" ? v.trim() : "");
   const norm = x => x.toLowerCase().replace(/[\u2019`]/g, "'").replace(/[^a-z0-9']+/g, " ").trim();
-  let natural = str(r.natural);
-  if (natural && (!answer || norm(natural) === norm(answer))) natural = "";
+  let natural = speakable(str(r.natural));
+  if (natural && (!answer || norm(natural) === norm(answer) || norm(natural) === norm(speakable(answer)))) natural = "";
   return {
-    model: r.model.trim(),
-    alts: Array.isArray(r.alts) ? r.alts.map(str).filter(Boolean).slice(0, 2) : [],
+    model: speakable(r.model.trim()),
+    alts: Array.isArray(r.alts) ? r.alts.map(str).map(speakable).filter(Boolean).slice(0, 2) : [],
     verdict: ["correct", "close", "wrong"].includes(r.verdict) ? r.verdict : "close",
     feedback: str(r.feedback), natural, natural_why: natural ? str(r.natural_why) : "",
-    phrase: str(r.phrase), phrase_ja: str(r.phrase_ja)
+    phrase: speakable(str(r.phrase)), phrase_ja: str(r.phrase_ja)
   };
 }
 function teachPrompt(item) {
   return [
-    "You are an English coach for a Japanese adult. They learn to say their OWN real LINE messages (casual texts to a friend) in natural English.",
+    "You are an English coach for a Japanese adult. They learn to SAY their OWN real LINE messages (casual texts to a friend) out loud in natural spoken English.",
     "",
     contextBlock(item) + "Japanese message they actually sent:",
     "<<<" + item.ja + ">>>",
     "",
     "Do this:",
-    "1. model: the most natural casual English text a native speaker would send a friend with the same meaning and tone. Keep it short like a real text. Render 笑 / (笑) / w as lol or haha only where natural. Write Japanese names in romaji.",
-    "2. alts: 1-2 other natural ways to say it, worded differently.",
+    "1. model: the most natural casual English a native speaker would say to a friend with the same meaning and tone, as if saying this message out loud. Keep it short. This app is for SPEAKING practice, so write only words that are actually pronounced: no lol, lmao, haha, emoji, emoticons or other text-only markers, and spell out texting abbreviations (by the way, not btw; I don't know, not idk). Do not translate 笑 / (笑) / w or stickers; if the laugh carries meaning, convey it with spoken words instead (for example I'm kidding, or that's hilarious). Write Japanese names in romaji.",
+    "2. alts: 1-2 other natural ways to say it, worded differently, following the same speaking-only rule.",
     "3. point: 1-2 short sentences IN JAPANESE on the key to saying it this way (word choice, nuance or grammar), so it is easy to remember. If the conversation changes how it should be said, mention that briefly.",
     "4. phrase: one reusable expression from the model answer; phrase_ja: its meaning in Japanese.",
     "",
@@ -809,7 +827,7 @@ async function teach(item) {
   const r = await callClaude(teachPrompt(item));
   if (!r || typeof r.model !== "string" || !r.model.trim()) throw { code: "invalid_json" };
   const str = v => (typeof v === "string" ? v.trim() : "");
-  return { model: r.model.trim(), alts: Array.isArray(r.alts) ? r.alts.map(str).filter(Boolean).slice(0, 2) : [], point: str(r.point), phrase: str(r.phrase), phrase_ja: str(r.phrase_ja) };
+  return { model: speakable(r.model.trim()), alts: Array.isArray(r.alts) ? r.alts.map(str).map(speakable).filter(Boolean).slice(0, 2) : [], point: str(r.point), phrase: speakable(str(r.phrase)), phrase_ja: str(r.phrase_ja) };
 }
 const PERMANENT = new Set(["no_key", "invalid_key", "credit", "permission", "model"]);
 function errorCopy(code) {
@@ -1555,6 +1573,12 @@ async function boot() {
   S.pool = pool || null; S.cards = cards || {}; S.log = Array.isArray(log) ? log : [];
   indexPool();
   const converted = convertLegacy();
+  let cleaned = 0;
+  for (const c of allCards()) {
+    const en = c.en && speakable(c.en), alts = (c.alts || []).map(speakable), ph = c.ph && speakable(c.ph);
+    if (en !== c.en || ph !== c.ph || alts.some((a, i) => a !== c.alts[i])) { c.en = en; c.alts = alts; c.ph = ph; cleaned++; }
+  }
+  if (cleaned) saveCards();
   replayAll();
   S.ready = true; render();
   if (migrated || converted) {
