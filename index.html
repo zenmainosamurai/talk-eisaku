@@ -143,19 +143,8 @@ a { color: var(--me); }
 .thread { flex: 1; display: flex; flex-direction: column; padding-bottom: 8px; }
 
 /* home */
-.hero { padding: 20px 0 8px; display: flex; flex-direction: column; }
-.hero .bubble.mine { font-size: 1.3125rem; max-width: 90%; }
-.hero .prompt { align-self: flex-end; color: var(--muted); font-size: .9375rem; margin: 6px 4px 0; }
-.today { font-size: 1.0625rem; margin: 18px 0 12px; }
-.today b { font-weight: 700; }
 section { padding: 20px 0; border-top: 1px solid var(--line); }
 section h2 { margin: 0 0 12px; font-size: 1rem; font-weight: 700; }
-.fc { display: grid; grid-template-columns: repeat(7, 1fr); gap: 8px; align-items: end; height: 96px; }
-.fc .col { display: flex; flex-direction: column; align-items: center; justify-content: flex-end; height: 100%; gap: 4px; }
-.fc .n { font-size: .8125rem; color: var(--muted); font-variant-numeric: tabular-nums; }
-.fc .b { width: 100%; max-width: 32px; border-radius: 6px 6px 2px 2px; background: var(--me-soft); min-height: 3px; }
-.fc .col.now .b { background: var(--me); }
-.fc .d { font-size: .75rem; color: var(--muted); }
 .item { padding: 12px 0; border-bottom: 1px solid var(--line); }
 .item:last-child { border-bottom: 0; }
 .item .ja { font-size: .9375rem; color: var(--muted); white-space: pre-wrap; }
@@ -193,6 +182,107 @@ input[type="range"] { width: 100%; accent-color: var(--me); }
   .typing i, .mic.on::after { animation: none; }
   .progress span, .switch::after { transition: none; }
 }
+/* ---- v3: 定着度ドット ---- */
+:root {
+  --l1: #D3D9F4; --l1-ring: #8F9BD6; --l2: #A3B0EA; --l3: #7184D8; --l4: #4557BF; --l5: #232F86;
+  --plan-ring: #8A94AA; --row-hi: #F3F5FC; --line-soft: #EEF1F5; --ctx-me: #E6E9F0;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --l1: #2B3359; --l1-ring: #5A67A8; --l2: #3B4BA0; --l3: #5468D4; --l4: #7D90F0; --l5: #B5C2FF;
+    --plan-ring: #77819A; --row-hi: #222A40; --line-soft: #242B3B; --ctx-me: #262D3D;
+  }
+}
+:root[data-theme="dark"] {
+  --l1: #2B3359; --l1-ring: #5A67A8; --l2: #3B4BA0; --l3: #5468D4; --l4: #7D90F0; --l5: #B5C2FF;
+  --plan-ring: #77819A; --row-hi: #222A40; --line-soft: #242B3B; --ctx-me: #262D3D;
+}
+.dot { display: inline-block; flex: none; width: 5px; height: 5px; border-radius: 50%; }
+.dot.l1 { background: var(--l1); box-shadow: inset 0 0 0 1px var(--l1-ring); }
+.dot.l2 { background: var(--l2); }
+.dot.l3 { background: var(--l3); }
+.dot.l4 { background: var(--l4); }
+.dot.l5 { background: var(--l5); }
+.dot.plan { background: transparent; box-shadow: inset 0 0 0 1.25px var(--plan-ring); }
+.dot.s9 { width: 9px; height: 9px; }
+.dot.s10 { width: 10px; height: 10px; }
+.dot.s12 { width: 12px; height: 12px; }
+.dot.m { width: 14px; height: 14px; }
+.dot.m.plan, .dot.s9.plan, .dot.s12.plan { box-shadow: inset 0 0 0 1.5px var(--plan-ring); }
+
+/* ---- ホーム ---- */
+.todayrow { display: flex; align-items: center; gap: 12px; padding: 6px 0 16px; }
+.todayrow .info { flex: 1; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.todayrow .lbl { font-size: .8125rem; color: var(--muted); }
+.todayrow .num { font-size: 1.0625rem; }
+.todayrow .num b { font-size: 1.625rem; font-weight: 700; }
+.todayrow .num small { font-size: .8125rem; color: var(--muted); }
+.todayrow .btn { padding: 0 26px; }
+.cal { background: var(--surface); border: 1px solid var(--line); border-radius: 20px; padding: 12px 10px 14px; display: flex; flex-direction: column; gap: 10px; touch-action: pan-y; margin-top: 12px; }
+.zseg { display: flex; gap: 4px; background: var(--bg); border-radius: 12px; padding: 3px; }
+.zseg button { flex: 1; height: 38px; border: 0; border-radius: 10px; background: transparent; color: var(--muted); font-size: .9375rem; font-weight: 500; }
+.zseg button[aria-pressed="true"] { background: var(--surface); color: var(--ink); font-weight: 700; box-shadow: 0 1px 2px rgba(27, 34, 50, .12); }
+.cal-head { display: flex; align-items: center; padding: 0 2px; }
+.cal-head .ttl { flex: 1; font-size: 1.125rem; font-weight: 700; padding-left: 6px; }
+.cal-head .ttl small { font-size: .8125rem; font-weight: 500; color: var(--me); margin-left: 6px; }
+.nav-btn { width: 44px; height: 44px; border: 0; background: none; color: var(--me); display: grid; place-items: center; padding: 0; border-radius: 12px; }
+.nav-btn:active { background: var(--me-soft); }
+.nav-btn svg { width: 20px; height: 20px; }
+.wk { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 0 2px; font-size: .75rem; color: var(--muted); text-align: center; }
+.mgrid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px 2px; }
+.mcell { height: 64px; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 2px 0 0; border-radius: 12px; border: 0; background: transparent; min-width: 0; }
+.mcell.sel { background: var(--me-soft); }
+.mcell .num { width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; font-size: .8125rem; font-variant-numeric: tabular-nums; }
+.mcell.today .num { background: var(--me); color: var(--on-me); font-weight: 700; }
+.mcell.future .num { color: var(--muted); }
+.mcell.sel .num { font-weight: 700; }
+.mdots { display: grid; grid-template-columns: repeat(6, 5px); gap: 2px; justify-content: center; }
+.more { font-size: 9px; line-height: 1; color: var(--muted); height: 9px; }
+.legend { display: flex; align-items: center; gap: 6px; padding: 10px 6px 0; border-top: 1px solid var(--line-soft); font-size: .75rem; color: var(--muted); flex-wrap: wrap; }
+.legend .ramp { display: flex; gap: 4px; }
+.legend .plan-key { margin-left: auto; display: flex; align-items: center; gap: 5px; }
+.msum { display: flex; flex-direction: column; gap: 8px; padding: 16px 4px 0; }
+.msum .row1 { display: flex; align-items: baseline; gap: 8px; }
+.msum .row1 b { font-size: 1rem; }
+.msum .row1 span { font-size: .875rem; color: var(--muted); }
+.msum .dots { display: flex; gap: 6px; flex-wrap: wrap; }
+.wrow { padding: 12px 8px; border-radius: 14px; border-bottom: 1px solid var(--line-soft); }
+.wrow:last-child { border-bottom: 0; }
+.wrow.open { background: var(--row-hi); }
+.wline { display: flex; gap: 12px; align-items: flex-start; }
+.wlab { width: 52px; flex: none; display: flex; flex-direction: column; }
+.wnum { font-size: 1.25rem; font-weight: 700; font-variant-numeric: tabular-nums; margin-right: 4px; }
+.wnum.today { color: var(--me); }
+.wnum.future { color: var(--muted); }
+.wwd, .wcount { font-size: .75rem; color: var(--muted); }
+.wdots { flex: 1; display: flex; flex-wrap: wrap; gap: 0; padding-top: 3px; min-width: 0; }
+.wdot { width: 20px; height: 20px; padding: 0; border: 0; background: none; display: grid; place-items: center; border-radius: 50%; }
+.wdot.picked .dot { outline: 2px solid var(--ink); outline-offset: 2px; }
+.pop { position: relative; margin: 12px 0 2px 64px; background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 12px 12px 8px 14px; box-shadow: 0 6px 20px rgba(27, 34, 50, .12); display: flex; flex-direction: column; gap: 6px; }
+.pop-meta { display: flex; align-items: center; gap: 4px 6px; font-size: .75rem; color: var(--muted); flex-wrap: wrap; }
+.pop-meta span { white-space: nowrap; }
+.pop-meta .grow { flex: 1; }
+.pop-ja { font-size: .9375rem; line-height: 1.6; white-space: pre-wrap; }
+.pop .en-line .txt { font-size: 1.125rem; line-height: 1.35; font-weight: 500; }
+.dsum { display: flex; flex-direction: column; gap: 8px; padding: 0 8px 6px; }
+.dbar { display: flex; height: 10px; border-radius: 5px; overflow: hidden; gap: 2px; }
+.dbar span { min-width: 4px; }
+.dbar .b1 { background: var(--l1); box-shadow: inset 0 0 0 1px var(--l1-ring); }
+.dbar .b2 { background: var(--l2); } .dbar .b3 { background: var(--l3); } .dbar .b4 { background: var(--l4); } .dbar .b5 { background: var(--l5); }
+.dgroup { display: flex; align-items: center; gap: 8px; padding: 12px 8px 4px; font-size: .8125rem; font-weight: 700; }
+.dgroup span:last-child { font-weight: 400; color: var(--muted); }
+.ditem { display: flex; gap: 10px; align-items: center; padding: 10px 8px 12px; border-bottom: 1px solid var(--line-soft); }
+.ditem .body { flex: 1; display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.ditem .ja { font-size: .9375rem; line-height: 1.5; white-space: pre-wrap; }
+.ditem .en { font-family: var(--serif); font-size: 1.0625rem; line-height: 1.35; font-weight: 500; }
+.ditem .meta { font-size: .75rem; color: var(--muted); }
+.cal-empty { margin: 8px; color: var(--muted); font-size: .9375rem; }
+.loading { padding: 40vh 0 0; text-align: center; color: var(--muted); }
+
+/* ---- 出題画面の文脈 ---- */
+.bubble.ctxme { background: var(--ctx-me); color: var(--ink); border-bottom-right-radius: 6px; font-size: .9375rem; }
+.bubble.them.small { font-size: .9375rem; }
+.after-ctx { align-self: flex-start; font-size: .8125rem; color: var(--muted); margin: 2px 6px 0; }
 </style>
 </head>
 <body>
@@ -203,17 +293,24 @@ input[type="range"] { width: 100%; accent-color: var(--me); }
 const DAY = 86400000;
 const pad2 = n => String(n).padStart(2, "0");
 const startOfDay = t => { const d = new Date(t); d.setHours(0, 0, 0, 0); return d.getTime(); };
+const addDays = (day, n) => { const d = new Date(day); d.setDate(d.getDate() + n); return startOfDay(d); };
 const len = s => Array.from(s).length;
 const WD = ["日", "月", "火", "水", "木", "金", "土"];
+const clamp = (x, a, b) => Math.min(b, Math.max(a, x));
+const avg = xs => xs.reduce((a, b) => a + b, 0) / Math.max(1, xs.length);
 const smart = s => String(s || "").replace(/(\w)'(\w)/g, "$1\u2019$2").replace(/(^|[\s(])"([^"]+)"/g, "$1\u201C$2\u201D").replace(/(^|[\s(])'([^']+)'/g, "$1\u2018$2\u2019");
 function fmtDate(d) { if (!d) return ""; const [y, m, dd] = d.split("-"); return `${y}年${+m}月${+dd}日`; }
 function fmtMD(t) { const d = new Date(t); return `${d.getMonth() + 1}月${d.getDate()}日`; }
+function fmtMDW(t) { const d = new Date(t); return `${d.getMonth() + 1}月${d.getDate()}日（${WD[d.getDay()]}）`; }
 function relDays(n) { if (n <= 0) return "今日"; if (n === 1) return "明日"; if (n < 30) return `${n}日後`; if (n < 365) return `約${Math.round(n / 30)}か月後`; return "約1年後"; }
+function whenText(t) { return relDays(Math.round((startOfDay(t) - startOfDay(Date.now())) / DAY)); }
 
 const ICON = {
   mic: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0"/><path d="M12 18v3"/></svg>',
   stop: '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="7" y="7" width="10" height="10" rx="2"/></svg>',
-  speak: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9v6h4l5 4V5L8 9H4z"/><path d="M16.5 8.5a5 5 0 0 1 0 7"/><path d="M19 6a8.5 8.5 0 0 1 0 12"/></svg>'
+  speak: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9v6h4l5 4V5L8 9H4z"/><path d="M16.5 8.5a5 5 0 0 1 0 7"/><path d="M19 6a8.5 8.5 0 0 1 0 12"/></svg>',
+  prev: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg>',
+  next: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>'
 };
 
 function h(tag, props, ...kids) {
@@ -232,7 +329,6 @@ function h(tag, props, ...kids) {
   }
   return el;
 }
-
 let toastTimer = null;
 function toast(msg, ms = 3800) {
   document.querySelector(".toast")?.remove();
@@ -242,27 +338,75 @@ function toast(msg, ms = 3800) {
   toastTimer = setTimeout(() => t.remove(), ms);
 }
 
-/* ============ ブラウザ保存（この端末） ============ */
-const K = { pool: "tk.pool.v1", cards: "tk.cards.v1", settings: "tk.settings.v1" };
+/* ============ 保存（この端末のブラウザ） ============ */
+// 小さい設定は localStorage、トーク履歴・学習記録・回答履歴は IndexedDB
+const K = { settings: "tk.settings.v1", mem: "tk.memory.v1", key: "tk.apikey.v1", oldPool: "tk.pool.v1", oldCards: "tk.cards.v1" };
 const LS = {
   get(k) { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : null; } catch { return null; } },
   set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); return true; } catch { return false; } },
   del(k) { try { localStorage.removeItem(k); } catch {} }
 };
+const IDB = {
+  db: null,
+  open() {
+    return new Promise((res, rej) => {
+      const r = indexedDB.open("talk-eisaku", 1);
+      r.onupgradeneeded = () => r.result.createObjectStore("kv");
+      r.onsuccess = () => { this.db = r.result; res(); };
+      r.onerror = () => rej(r.error);
+      r.onblocked = () => rej(new Error("blocked"));
+    });
+  },
+  run(mode, fn) {
+    return new Promise((res, rej) => {
+      const tx = this.db.transaction("kv", mode);
+      const q = fn(tx.objectStore("kv"));
+      tx.oncomplete = () => res(q && q.result);
+      tx.onerror = () => rej(tx.error);
+      tx.onabort = () => rej(tx.error);
+    });
+  }
+};
+const Store = {
+  ok: false,
+  async init() { try { await IDB.open(); this.ok = true; } catch (e) { console.warn("IndexedDB unavailable", e); } },
+  async get(k) { if (this.ok) { try { return await IDB.run("readonly", s => s.get(k)); } catch (e) { console.warn(e); } } return LS.get("tk.kv." + k); },
+  async set(k, v) { if (this.ok) { try { await IDB.run("readwrite", s => s.put(v, k)); return true; } catch (e) { console.warn(e); } } return LS.set("tk.kv." + k, v); },
+  async del(k) { if (this.ok) { try { await IDB.run("readwrite", s => s.delete(k)); } catch {} } LS.del("tk.kv." + k); }
+};
+const pending = {};
+function saveLater(key, ms = 300) {
+  clearTimeout(pending[key]);
+  pending[key] = setTimeout(() => flushOne(key), ms);
+}
+function flushOne(key) {
+  clearTimeout(pending[key]); delete pending[key];
+  const v = key === "cards" ? S.cards : key === "log" ? S.log : S.pool;
+  const p = v == null ? Store.del(key) : Store.set(key, v);
+  Promise.resolve(p).then(ok => { if (ok === false) toast("データを保存できませんでした。端末の空き容量を確認してください。", 6000); });
+}
+function flushAll() { for (const k of Object.keys(pending)) flushOne(k); }
+document.addEventListener("visibilitychange", () => { if (document.visibilityState === "hidden") flushAll(); });
+const saveCards = () => saveLater("cards");
+const saveLog = () => saveLater("log");
+const savePool = () => saveLater("pool", 50);
+function persistSettings() { LS.set(K.settings, S.settings); }
+const getKey = () => { try { return localStorage.getItem(K.key) || ""; } catch { return ""; } };
+const setKey = k => { try { if (k) localStorage.setItem(K.key, k); else localStorage.removeItem(K.key); } catch {} };
+const hasKey = () => !!getKey();
 
 /* ============ 状態 ============ */
 const S = {
   view: "home",
-  pool: null,            // { sources:[{partner, me, count, at}], items:[{id,d,ja,ctx,cn}] }
-  poolIndex: new Map(),
-  cards: {},             // id -> カード（学習記録）
-  settings: { newPerDay: 10, rate: 0.95, autoSpeak: true, model: "claude-haiku-5-5" },
-  ready: false,
-  sample: null, perms: null,
-  db: null, uid: null, storage: "local",
-  plan: null, session: null, setup: null,
-  micBlocked: false
+  pool: null,            // { v:2, sources:[{key, partner, me, meIdx, names, msgs, count, at}], items:[{id, d, ja, src, mi}] }
+  poolIndex: new Map(), srcByKey: new Map(),
+  cards: {},             // id -> { id, ja, d, src, mi, en, alts, tip, ph, phj, created, S, last, lapses }
+  log: [],               // 回答履歴 { id, t, k: learn|correct|close|wrong|init|seen, p?, dt?, s?, l? }
+  mem: { m: 1, s0: 1, n: 0, nAt: 0, fitted: false, at: 0 },  // あなた向けの記憶モデル
+  settings: { newPerDay: 10, rate: 0.95, autoSpeak: true, model: "claude-haiku-5-5", sendContext: true },
+  ready: false, plan: null, session: null, setup: null, micBlocked: false
 };
+const allCards = () => Object.values(S.cards);
 
 /* ============ LINEトーク履歴の読み込み ============ */
 function cyrb53(str) {
@@ -318,7 +462,14 @@ function cleanText(t) {
   if (jp < 5 || jp / Math.max(1, len(core)) < 0.6) return null;
   return t;
 }
-function buildItems(msgs, me) {
+function buildSource(parsed, me) {
+  const names = Object.keys(parsed.speakers);
+  const idx = new Map(names.map((n, i) => [n, i]));
+  const partner = parsed.partner || "トーク";
+  return { key: partner + "|" + me, partner, me, meIdx: idx.get(me), names, at: Date.now(), count: 0,
+    msgs: parsed.msgs.map(m => [m.name ? idx.get(m.name) : -1, m.d, m.text]) };
+}
+function buildItems(msgs, me, key) {
   const items = [], seen = new Set();
   for (let i = 0; i < msgs.length; i++) {
     const m = msgs[i];
@@ -326,126 +477,188 @@ function buildItems(msgs, me) {
     const ja = cleanText(m.text);
     if (!ja || seen.has(ja)) continue;
     seen.add(ja);
-    let ctx = null, cn = null;
-    for (let j = i - 1; j >= Math.max(0, i - 4); j--) {
-      const p = msgs[j];
-      if (p.d !== m.d) break;
-      if (!p.name || p.name === me) continue;
-      const pt = p.text.trim();
-      if (RE_MEDIA.test(pt) || RE_SYSTEM.test(pt)) continue;
-      ctx = Array.from(pt).slice(0, 120).join(""); cn = p.name; break;
-    }
-    items.push({ id: cyrb53(m.d + "|" + m.t + "|" + ja), d: m.d, ja, ctx, cn });
+    items.push({ id: cyrb53(m.d + "|" + m.t + "|" + ja), d: m.d, ja, src: key, mi: i });
   }
   return items;
 }
-function indexPool() { S.poolIndex = new Map((S.pool?.items || []).map(it => [it.id, it])); }
-function savePool() {
-  if (!S.pool) { LS.del(K.pool); return; }
-  if (!LS.set(K.pool, S.pool)) toast("トーク履歴をこの端末に保存できませんでした。次に開いたときは、もう一度読み込んでください。", 6000);
+function indexPool() {
+  S.poolIndex = new Map((S.pool?.items || []).map(it => [it.id, it]));
+  S.srcByKey = new Map((S.pool?.sources || []).filter(s => s.key).map(s => [s.key, s]));
 }
-function addSource(partner, me, items) {
-  const pool = S.pool || { sources: [], items: [] };
-  const haveId = new Set(pool.items.map(i => i.id)), haveJa = new Set(pool.items.map(i => i.ja));
+function addSource(src, items) {
+  const pool = S.pool || { v: 2, sources: [], items: [] };
+  const ex = pool.sources.findIndex(s => s.key === src.key || (!s.msgs && s.partner === src.partner && s.me === src.me));
+  if (ex >= 0) { src.count = pool.sources[ex].count || 0; pool.sources[ex] = src; } else pool.sources.push(src);
+  const byId = new Map(pool.items.map(i => [i.id, i])), haveJa = new Set(pool.items.map(i => i.ja));
   let added = 0;
-  for (const it of items) { if (haveId.has(it.id) || haveJa.has(it.ja)) continue; pool.items.push(it); haveJa.add(it.ja); added++; }
-  const label = partner || "トーク";
-  const ex = pool.sources.find(s => s.partner === label && s.me === me);
-  if (ex) { ex.count += added; ex.at = Date.now(); } else pool.sources.push({ partner: label, me, count: added, at: Date.now() });
-  S.pool = pool; indexPool(); savePool();
+  for (const it of items) {
+    const old = byId.get(it.id);
+    if (old) { old.src = it.src; old.mi = it.mi; delete old.ctx; delete old.cn; continue; }
+    if (haveJa.has(it.ja)) continue;
+    pool.items.push(it); haveJa.add(it.ja); added++;
+  }
+  src.count += added;
+  for (const it of items) { const c = S.cards[it.id]; if (c) { c.src = it.src; c.mi = it.mi; } }
+  pool.v = 2; S.pool = pool; indexPool(); savePool(); saveCards();
   return added;
 }
+const needsReimport = () => !!(S.pool && S.pool.items.some(i => !i.src));
+// 前後のやり取り（同じ日のみ）。システムメッセージは除き、スタンプ・写真はそのまま残す
+function contextOf(item) {
+  const empty = { before: [], after: [] };
+  if (!item) return empty;
+  const src = item.src && S.srcByKey.get(item.src);
+  if (!src || item.mi == null || !src.msgs[item.mi]) return item.ctx ? { before: [{ me: false, name: item.cn || "相手", text: item.ctx }], after: [] } : empty;
+  const m = src.msgs, day = m[item.mi][1];
+  const take = (start, dir, n) => {
+    const out = [];
+    for (let j = start; j >= 0 && j < m.length && out.length < n; j += dir) {
+      const [ni, d, text] = m[j];
+      if (d !== day) break;
+      if (ni < 0) continue;
+      const tt = String(text).trim();
+      if (!tt || RE_SYSTEM.test(tt)) continue;
+      out.push({ me: ni === src.meIdx, name: src.names[ni] || "相手", text: Array.from(tt).slice(0, 140).join("") });
+    }
+    return dir < 0 ? out.reverse() : out;
+  };
+  return { before: take(item.mi - 1, -1, 3), after: take(item.mi + 1, 1, 2) };
+}
+const itemFor = id => S.cards[id] || S.poolIndex.get(id);
 
-/* ============ 復習タイミング（間隔反復） ============ */
-function newCard(item) {
-  return { id: item.id, ja: item.ja, d: item.d || null, en: null, alts: [], tip: null, ph: null, phj: null,
-    ease: 2.5, ivl: 0, reps: 0, lapses: 0, due: 0, last: 0, created: Date.now(), hist: [], ans: null };
+/* ============ 記憶モデル（あなた向けにフィッティングする忘却曲線） ============ */
+// 定着率 R(t) = (1 + F·t/S)^-0.5。S（安定度・日）たった時点で R = 90%
+const F = 19 / 81, DECAY = -0.5, TARGET = 0.9, G0 = 15.7;
+const R = (t, s) => Math.pow(1 + F * Math.max(0, t) / Math.max(s, 0.01), DECAY);
+const LV_NAME = ["", "まだ不安定", "覚えたて", "なじんできた", "ほぼ定着", "定着"];
+function grow(s, r, m, partial) {
+  const g = G0 * m * Math.pow(s, -0.15) * (Math.exp(1.2 * (1 - r)) - 1) * (partial ? 0.4 : 1);
+  return s * (1 + g);
 }
-// wrong: 10分後にもう一度 → 正解で1日後 → 3日後 → 間隔×易しさ…
-// 初見で正解したものは4日後から
-function schedule(card, verdict, now = Date.now()) {
-  const c = { ...card, hist: [...(card.hist || []), verdict].slice(-8) };
-  const first = !card.last;
-  if (verdict === "wrong") {
-    c.lapses = (card.lapses || 0) + 1; c.reps = 0; c.ease = Math.max(1.3, card.ease - 0.2); c.ivl = 0; c.due = now + 10 * 60000;
-  } else {
-    let ivl;
-    if (verdict === "close") { c.ease = Math.max(1.3, card.ease - 0.15); ivl = card.reps === 0 ? 1 : Math.max(card.ivl + 1, Math.round(card.ivl * 1.2)); }
-    else ivl = card.reps === 0 ? (first ? 4 : 1) : card.reps === 1 ? Math.max(3, Math.round(card.ivl * card.ease)) : Math.round(card.ivl * card.ease);
-    if (ivl >= 7) ivl = Math.round(ivl * (0.92 + Math.random() * 0.16));
-    ivl = Math.min(Math.max(1, ivl), 365);
-    c.ivl = ivl; c.reps = card.reps + 1; c.due = startOfDay(now) + ivl * DAY;
+const lapse = s => Math.max(0.15, 0.3 * Math.pow(s, 0.6));
+function step(st, ev, P) {
+  if (ev.k === "seen") return st;
+  if (ev.k === "init") return { S: ev.s, last: ev.t, lapses: ev.l || 0 };
+  if (ev.k === "learn") return { S: P.s0, last: ev.t, lapses: st ? st.lapses : 0 };
+  if (!st) st = { S: P.s0, last: ev.t, lapses: 0 };
+  const r = R((ev.t - st.last) / DAY, st.S);
+  const s2 = ev.k === "wrong" ? lapse(st.S) : grow(st.S, r, P.m, ev.k === "close");
+  return { S: Math.min(s2, 3650), last: ev.t, lapses: st.lapses + (ev.k === "wrong" ? 1 : 0) };
+}
+const stateOf = c => (c && c.last ? { S: c.S, last: c.last, lapses: c.lapses || 0 } : null);
+const dueOf = c => c.last + c.S * DAY;
+const rNow = (c, now = Date.now()) => R((now - c.last) / DAY, c.S);
+// 定着度 = 今の状態から計算した「1週間後にも思い出せる見込み」
+function levelOf(c, now = Date.now()) {
+  if (!c || !c.last) return 1;
+  const r7 = R((now - c.last) / DAY + 7, c.S);
+  return r7 < 0.5 ? 1 : r7 < 0.7 ? 2 : r7 < 0.85 ? 3 : r7 < 0.95 ? 4 : 5;
+}
+const isReview = e => e.k === "correct" || e.k === "close" || e.k === "wrong";
+const yOf = e => (e.k === "wrong" ? 0 : e.k === "close" ? 0.7 : 1);
+function groupLog() {
+  const by = new Map();
+  for (const e of S.log) { if (!by.has(e.id)) by.set(e.id, []); by.get(e.id).push(e); }
+  for (const evs of by.values()) evs.sort((a, b) => a.t - b.t);
+  return by;
+}
+function replayAll() {
+  for (const [id, evs] of groupLog()) {
+    const c = S.cards[id];
+    if (!c) continue;
+    let st = null;
+    for (const e of evs) st = step(st, e, S.mem);
+    if (st) { c.S = st.S; c.last = st.last; c.lapses = st.lapses; }
   }
-  c.last = now;
-  return c;
 }
-const allCards = () => Object.values(S.cards);
-const dueCards = (now = Date.now()) => allCards().filter(c => c.due <= now).sort((a, b) => (b.lapses - a.lapses) || (a.due - b.due));
-const newToday = () => { const t = startOfDay(Date.now()); return allCards().filter(c => c.created >= t).length; };
+function logLik(P, by) {
+  let ll = 0, n = 0;
+  for (const evs of by.values()) {
+    let st = null;
+    for (const e of evs) {
+      if (st && isReview(e)) {
+        const t = (e.t - st.last) / DAY;
+        if (t >= 0.05) {
+          const p = clamp(R(t, st.S), 0.001, 0.999), y = yOf(e);
+          ll += y * Math.log(p) + (1 - y) * Math.log(1 - p); n++;
+        }
+      }
+      st = step(st, e, P);
+    }
+  }
+  return { ll, n };
+}
+const MS = [0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1, 1.15, 1.3, 1.5, 1.75, 2, 2.5, 3];
+const S0S = [0.25, 0.35, 0.5, 0.7, 1, 1.4, 2, 3];
+function fitModel(force) {
+  if (!force && S.log.length - (S.mem.nAt || 0) < 10 && Date.now() - (S.mem.at || 0) < DAY) return;
+  const by = groupLog();
+  const n = logLik({ m: 1, s0: 1 }, by).n;
+  let best = { m: 1, s0: 1 };
+  if (n >= 20) {
+    let top = -Infinity;
+    for (const m of MS) for (const s0 of S0S) {
+      const score = logLik({ m, s0 }, by).ll - 4 * (Math.log(m) ** 2 + Math.log(s0) ** 2);
+      if (score > top) { top = score; best = { m, s0 }; }
+    }
+  }
+  S.mem = { ...best, n, nAt: S.log.length, fitted: n >= 20, at: Date.now() };
+  LS.set(K.mem, S.mem);
+  replayAll(); saveCards();
+}
+// 予測の当たり具合：「定着率が高い」と出していた問題の、実際の正解率
+function calibInfo() {
+  const evs = [];
+  for (let i = S.log.length - 1; i >= 0 && evs.length < 60; i--) {
+    const e = S.log[i];
+    if (isReview(e) && e.p != null && e.p >= 0.85 && (e.dt || 0) >= 0.5) evs.push(e);
+  }
+  if (!evs.length) return { n: 0 };
+  return { n: evs.length, pred: avg(evs.map(e => e.p)), act: avg(evs.map(yOf)) };
+}
+// 確認問題の割合：予測より忘れているほど増やし、当たってきたら減らす
+function exploreShare() {
+  const c = calibInfo();
+  if (c.n < 8) return 0.15;
+  return clamp(0.05 + 2 * Math.max(0, c.pred - c.act), 0.05, 0.35);
+}
+
+/* ============ 出題計画 ============ */
+const REVIEW_CAP = 40;
+function daySet(day) {
+  const end = addDays(day, 1), s = new Set();
+  for (const e of S.log) if (e.t >= day && e.t < end && S.cards[e.id]) s.add(e.id);
+  return s;
+}
+const newToday = () => { const t = startOfDay(Date.now()); return S.log.filter(e => e.k === "learn" && e.t >= t).length; };
+function sampleN(arr, n) {
+  const a = arr.slice(), out = [];
+  while (out.length < n && a.length) out.push(a.splice(Math.floor(Math.random() * a.length), 1)[0]);
+  return out;
+}
 function pickFresh(n) {
   if (n <= 0 || !S.pool) return [];
   const known = new Set(allCards().map(c => c.ja));
   const cand = S.pool.items.filter(it => !S.cards[it.id] && !known.has(it.ja));
   const good = cand.filter(it => { const L = len(it.ja); return L >= 7 && L <= 45; });
-  const src = good.length >= n ? good : cand;
-  const out = [], used = new Set();
-  while (out.length < n && used.size < src.length) { const k = Math.floor(Math.random() * src.length); if (used.has(k)) continue; used.add(k); out.push(src[k]); }
-  return out;
+  return sampleN(good.length >= n ? good : cand, n);
 }
-function makePlan(extra = 0) {
-  const due = dueCards();
-  const slots = extra || Math.max(0, S.settings.newPerDay - newToday());
-  return { due: due.map(c => c.id), fresh: pickFresh(slots) };
-}
-
-/* ============ 保存（この端末のブラウザ） ============ */
-let localSaveTimer = null;
-function saveLocalCards() {
-  clearTimeout(localSaveTimer);
-  localSaveTimer = setTimeout(() => { if (!LS.set(K.cards, S.cards)) toast("学習記録を保存できませんでした。端末の空き容量を確認してください。", 6000); }, 250);
-}
-function persistCard() { saveLocalCards(); }
-function persistSettings() { LS.set(K.settings, S.settings); }
-const KEY_LS = "tk.apikey.v1";
-const getKey = () => { try { return localStorage.getItem(KEY_LS) || ""; } catch { return ""; } };
-const setKey = k => { try { if (k) localStorage.setItem(KEY_LS, k); else localStorage.removeItem(KEY_LS); } catch {} };
-const hasKey = () => !!getKey();
-function mergePool(p2) {
-  const pool = S.pool || { sources: [], items: [] };
-  const haveId = new Set(pool.items.map(i => i.id)), haveJa = new Set(pool.items.map(i => i.ja));
-  for (const it of p2.items || []) { if (!it || !it.id || !it.ja || haveId.has(it.id) || haveJa.has(it.ja)) continue; pool.items.push(it); haveJa.add(it.ja); }
-  for (const s of p2.sources || []) {
-    if (!s || !s.partner) continue;
-    const ex = pool.sources.find(x => x.partner === s.partner && x.me === s.me);
-    if (ex) ex.count = Math.max(ex.count, +s.count || 0); else pool.sources.push({ partner: String(s.partner), me: String(s.me || ""), count: +s.count || 0, at: +s.at || Date.now() });
-  }
-  S.pool = pool; indexPool(); savePool();
-}
-// バックアップ（APIキーは含めない）
-function exportBackup() {
-  const data = { app: "talk-eisaku", v: 1, exportedAt: new Date().toISOString(), settings: S.settings, cards: S.cards, pool: S.pool };
-  const url = URL.createObjectURL(new Blob([JSON.stringify(data)], { type: "application/json" }));
-  const a = h("a", { href: url, download: `talk-eisaku-backup-${new Date().toISOString().slice(0, 10)}.json` });
-  document.body.append(a); a.click(); a.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 5000);
-  toast("バックアップを保存しました。");
-}
-async function importBackup(file) {
-  if (!file) return;
-  try {
-    const data = JSON.parse(await file.text());
-    if (!data || data.app !== "talk-eisaku" || !data.cards || typeof data.cards !== "object") throw 0;
-    let n = 0;
-    for (const [id, c] of Object.entries(data.cards)) {
-      if (!c || typeof c !== "object" || !c.ja || !c.en) continue;
-      const l = S.cards[id];
-      if (!l || (c.last || 0) > (l.last || 0)) { S.cards[id] = c; n++; }
-    }
-    if (data.pool && Array.isArray(data.pool.items)) mergePool(data.pool);
-    if (data.settings && typeof data.settings === "object") { Object.assign(S.settings, data.settings); persistSettings(); }
-    saveLocalCards(); S.plan = null;
-    toast(`バックアップから${n.toLocaleString()}件の学習記録を復元しました。`); go("home");
-  } catch { toast("バックアップファイルとして読み取れませんでした。"); }
+function makePlan(extraNew = 0) {
+  const now = Date.now(), today = startOfDay(now);
+  const studied = allCards().filter(c => c.last && c.en);
+  // 1) 定着率が低い順
+  const due = studied.filter(c => rNow(c, now) < TARGET).sort((a, b) => rNow(a, now) - rNow(b, now)).slice(0, REVIEW_CAP);
+  const dueIds = new Set(due.map(c => c.id));
+  const slots = extraNew || Math.max(0, S.settings.newPerDay - newToday());
+  const fresh = pickFresh(slots);
+  // 2) モデルの確認用に、定着率が高いと計算された問題も混ぜる
+  const seen = daySet(today);
+  const cand = studied.filter(c => !dueIds.has(c.id) && !seen.has(c.id) && now - c.last > DAY / 2);
+  const nProbe = extraNew ? 0 : Math.min(cand.length, Math.round(exploreShare() * Math.max(5, due.length + fresh.length)));
+  const probes = sampleN(cand, nProbe);
+  const reviews = due.map(c => c.id);
+  for (const p of probes) reviews.splice(Math.floor(Math.random() * (reviews.length + 1)), 0, p.id);
+  return { reviews, probes: new Set(probes.map(p => p.id)), fresh };
 }
 
 /* ============ 音声（入力・読み上げ） ============ */
@@ -461,12 +674,12 @@ function toggleListening(ta, btn, onChange) {
   const setOn = on => { btn.classList.toggle("on", on); btn.innerHTML = on ? ICON.stop : ICON.mic; btn.setAttribute("aria-label", on ? "音声入力を止める" : "英語で話す"); };
   r.onresult = e => { let s = ""; for (let i = 0; i < e.results.length; i++) s += e.results[i][0].transcript; ta.value = before + s; onChange(); };
   r.onerror = e => {
-    if (e.error === "not-allowed" || e.error === "service-not-allowed") { S.micBlocked = true; toast("マイクの使用が許可されていません。キーボードのマイク（Gboardの音声入力）でも英語を入力できます。", 6500); }
+    if (e.error === "not-allowed" || e.error === "service-not-allowed") { S.micBlocked = true; toast("マイクの使用が許可されていません。Chromeのサイト設定で許可するか、キーボードのマイクを使ってください。", 6500); }
     else if (e.error === "no-speech") toast("声が聞き取れませんでした。もう一度どうぞ。");
     else if (e.error !== "aborted") toast("音声入力を開始できませんでした（" + e.error + "）。");
   };
   r.onend = () => { rec = null; setOn(false); };
-  try { r.start(); rec = r; setOn(true); } catch (err) { rec = null; toast("音声入力を開始できませんでした。"); }
+  try { r.start(); rec = r; setOn(true); } catch { rec = null; toast("音声入力を開始できませんでした。"); }
 }
 const TTS = {
   voice: null,
@@ -481,7 +694,7 @@ const TTS = {
   },
   speak(text, auto = false) {
     if (!text) return;
-    if (!("speechSynthesis" in window)) { if (!auto) toast("この画面では読み上げが使えません。Chromeで開くと使えます。"); return; }
+    if (!("speechSynthesis" in window)) { if (!auto) toast("この画面では読み上げが使えません。"); return; }
     speechSynthesis.cancel();
     const u = new SpeechSynthesisUtterance(text);
     u.lang = "en-US"; if (this.voice) u.voice = this.voice; u.rate = S.settings.rate;
@@ -500,25 +713,14 @@ async function callClaude(prompt, maxTokens = 2000) {
   try {
     res = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "x-api-key": key,
-        "anthropic-version": "2023-06-01",
-        "anthropic-dangerous-direct-browser-access": "true"
-      },
-      body: JSON.stringify({
-        model: MODELS[S.settings.model] ? S.settings.model : "claude-haiku-5-5",
-        max_tokens: maxTokens,
-        output_config: { effort: "low" },
-        messages: [{ role: "user", content: prompt }]
-      })
+      headers: { "content-type": "application/json", "x-api-key": key, "anthropic-version": "2023-06-01", "anthropic-dangerous-direct-browser-access": "true" },
+      body: JSON.stringify({ model: MODELS[S.settings.model] ? S.settings.model : "claude-haiku-5-5", max_tokens: maxTokens, output_config: { effort: "low" }, messages: [{ role: "user", content: prompt }] })
     });
-  } catch (e) { throw { code: navigator.onLine === false ? "offline" : "network" }; }
+  } catch { throw { code: navigator.onLine === false ? "offline" : "network" }; }
   let data = null;
   try { data = await res.json(); } catch {}
   if (!res.ok) {
-    const err = (data && data.error) || {};
-    const msg = String(err.message || "");
+    const err = (data && data.error) || {}, msg = String(err.message || "");
     if (res.status === 401) throw { code: "invalid_key" };
     if (res.status === 403) throw { code: "permission" };
     if (res.status === 429) throw { code: "rate_limited" };
@@ -534,12 +736,25 @@ async function callClaude(prompt, maxTokens = 2000) {
   if (a < 0 || b <= a) throw { code: "invalid_json" };
   try { return JSON.parse(t.slice(a, b + 1)); } catch { throw { code: "invalid_json" }; }
 }
-function buildPrompt(ja, answer, ref) {
+function contextBlock(item) {
+  if (!S.settings.sendContext) return "";
+  const cx = contextOf(item);
+  if (!cx.before.length && !cx.after.length) return "";
+  const labels = new Map();
+  const lab = m => {
+    if (m.me) return "Me";
+    if (!labels.has(m.name)) labels.set(m.name, labels.size === 0 ? "Friend" : "Friend " + String.fromCharCode(66 + labels.size - 1));
+    return labels.get(m.name);
+  };
+  const lines = [...cx.before.map(m => lab(m) + ": " + m.text), ">>> Me: " + item.ja + "    <- THE MESSAGE TO WORK ON", ...cx.after.map(m => lab(m) + ": " + m.text)];
+  return "This message comes from a LINE chat ([写真] = a photo, [スタンプ] = a sticker). The surrounding messages are for understanding only; do not translate them:\n<<<\n" + lines.join("\n") + "\n>>>\nUse this context to get pronouns, tense, tone and implied meaning right. The English must make sense as the message at that point in this conversation.\n\n";
+}
+function buildPrompt(item, answer, ref) {
   return [
     "You are an English coach for a Japanese adult. They practice saying their OWN real LINE messages (casual texts to a friend) in natural English.",
     "",
-    "Japanese message they actually sent:",
-    "<<<" + ja + ">>>",
+    contextBlock(item) + "Japanese message they actually sent:",
+    "<<<" + item.ja + ">>>",
     "",
     ref ? "Model answer they were shown before (keep it as the model answer unless it is clearly wrong or unnatural):\n<<<" + ref + ">>>\n" : "",
     "Their English attempt (it may come from speech recognition, so ignore capitalization, punctuation and obvious mishearings):",
@@ -548,7 +763,7 @@ function buildPrompt(ja, answer, ref) {
     "Do this:",
     "1. model: the most natural casual English text a native speaker would send a friend with the same meaning and tone. Keep it short like a real text. Render 笑 / (笑) / w as lol or haha only where natural. Write Japanese names in romaji.",
     "2. alts: 1-2 other natural ways to say it, worded differently.",
-    "3. verdict: judge ONLY whether the meaning gets across. \"correct\" if an English-speaking friend would understand what they meant, even if it is worded differently from the model, has grammar mistakes, or sounds unnatural. \"close\" if the main point comes through but an important part is missing or slightly off. \"wrong\" if the meaning does not come through, it is not English, or there is no attempt.",
+    "3. verdict: judge ONLY whether the meaning gets across. \"correct\" if an English-speaking friend would understand what they meant at that point in the conversation, even if it is worded differently from the model, has grammar mistakes, or sounds unnatural. \"close\" if the main point comes through but an important part is missing or slightly off. \"wrong\" if the meaning does not come through, it is not English, or there is no attempt.",
     "4. feedback: 1-2 short sentences IN JAPANESE about whether the meaning came through (and which part was missing or off, if any). Do not comment on grammar or naturalness here. If there is no attempt, explain the key point of the model answer.",
     "5. natural: if native speakers would more typically say what the learner said in a different way, write that version. Stay as close as possible to the learner's own wording and change only what natives would phrase differently. Natural means what natives actually prefer to say in casual texts, NOT grammatical correctness: do not change something only to fix grammar if natives commonly say it that way (dropped subjects, fragments and contractions are fine), and a grammatically perfect sentence can still be unnatural. Use an empty string if the attempt already sounds like what a native would text, if the verdict is wrong, or if there is no attempt.",
     "6. natural_why: if natural is not empty, 1 short sentence IN JAPANESE on why natives prefer it (for example, which word sounds stiff or textbook-like and what natives say instead). Otherwise an empty string.",
@@ -558,8 +773,8 @@ function buildPrompt(ja, answer, ref) {
     '{"model":"...","alts":["..."],"verdict":"correct","feedback":"...","natural":"...","natural_why":"...","phrase":"...","phrase_ja":"..."}'
   ].join("\n");
 }
-async function grade(ja, answer, ref) {
-  const r = await callClaude(buildPrompt(ja, answer, ref));
+async function grade(item, answer, ref) {
+  const r = await callClaude(buildPrompt(item, answer, ref));
   if (!r || typeof r.model !== "string" || !r.model.trim()) throw { code: "invalid_json" };
   const str = v => (typeof v === "string" ? v.trim() : "");
   const norm = x => x.toLowerCase().replace(/[\u2019`]/g, "'").replace(/[^a-z0-9']+/g, " ").trim();
@@ -572,6 +787,29 @@ async function grade(ja, answer, ref) {
     feedback: str(r.feedback), natural, natural_why: natural ? str(r.natural_why) : "",
     phrase: str(r.phrase), phrase_ja: str(r.phrase_ja)
   };
+}
+function teachPrompt(item) {
+  return [
+    "You are an English coach for a Japanese adult. They learn to say their OWN real LINE messages (casual texts to a friend) in natural English.",
+    "",
+    contextBlock(item) + "Japanese message they actually sent:",
+    "<<<" + item.ja + ">>>",
+    "",
+    "Do this:",
+    "1. model: the most natural casual English text a native speaker would send a friend with the same meaning and tone. Keep it short like a real text. Render 笑 / (笑) / w as lol or haha only where natural. Write Japanese names in romaji.",
+    "2. alts: 1-2 other natural ways to say it, worded differently.",
+    "3. point: 1-2 short sentences IN JAPANESE on the key to saying it this way (word choice, nuance or grammar), so it is easy to remember. If the conversation changes how it should be said, mention that briefly.",
+    "4. phrase: one reusable expression from the model answer; phrase_ja: its meaning in Japanese.",
+    "",
+    "Reply with only JSON like:",
+    '{"model":"...","alts":["..."],"point":"...","phrase":"...","phrase_ja":"..."}'
+  ].join("\n");
+}
+async function teach(item) {
+  const r = await callClaude(teachPrompt(item));
+  if (!r || typeof r.model !== "string" || !r.model.trim()) throw { code: "invalid_json" };
+  const str = v => (typeof v === "string" ? v.trim() : "");
+  return { model: r.model.trim(), alts: Array.isArray(r.alts) ? r.alts.map(str).filter(Boolean).slice(0, 2) : [], point: str(r.point), phrase: str(r.phrase), phrase_ja: str(r.phrase_ja) };
 }
 const PERMANENT = new Set(["no_key", "invalid_key", "credit", "permission", "model"]);
 function errorCopy(code) {
@@ -587,44 +825,26 @@ function errorCopy(code) {
   if (code === "refused") return "この文は採点できませんでした。とばして次へ進んでください。";
   return "Claudeから返事を受け取れませんでした。もう一度試してください。";
 }
-function teachPrompt(ja) {
-  return [
-    "You are an English coach for a Japanese adult. They learn to say their OWN real LINE messages (casual texts to a friend) in natural English.",
-    "",
-    "Japanese message they actually sent:",
-    "<<<" + ja + ">>>",
-    "",
-    "Do this:",
-    "1. model: the most natural casual English text a native speaker would send a friend with the same meaning and tone. Keep it short like a real text. Render 笑 / (笑) / w as lol or haha only where natural. Write Japanese names in romaji.",
-    "2. alts: 1-2 other natural ways to say it, worded differently.",
-    "3. point: 1-2 short sentences IN JAPANESE on the key to saying it this way (word choice, nuance or grammar), so it is easy to remember.",
-    "4. phrase: one reusable expression from the model answer; phrase_ja: its meaning in Japanese.",
-    "",
-    "Reply with only JSON like:",
-    '{"model":"...","alts":["..."],"point":"...","phrase":"...","phrase_ja":"..."}'
-  ].join("\n");
-}
-async function teach(ja) {
-  const r = await callClaude(teachPrompt(ja));
-  if (!r || typeof r.model !== "string" || !r.model.trim()) throw { code: "invalid_json" };
-  const str = v => (typeof v === "string" ? v.trim() : "");
-  return { model: r.model.trim(), alts: Array.isArray(r.alts) ? r.alts.map(str).filter(Boolean).slice(0, 2) : [], point: str(r.point), phrase: str(r.phrase), phrase_ja: str(r.phrase_ja) };
-}
 
 /* ============ セッション ============ */
 function startSession(plan) {
   const p = plan || makePlan();
   const fresh = new Map(p.fresh.map(it => [it.id, it]));
-  const queue = [...p.due, ...p.fresh.map(it => it.id)];
+  const queue = [...p.reviews, ...p.fresh.map(it => it.id)];
   if (!queue.length) return;
-  S.session = { queue, fresh, total: queue.length, seen: {}, first: {}, missed: [], phase: "ask", cur: null, answer: "", result: null, error: null, kind: "" };
+  S.session = { queue, fresh, probes: p.probes || new Set(), total: queue.length, seen: {}, first: {}, missed: [], phase: "ask", cur: null, answer: "", result: null, lesson: null, error: null, kind: "" };
   nextQuestion();
 }
+function newCard(item) {
+  return { id: item.id, ja: item.ja, d: item.d || null, src: item.src || null, mi: item.mi ?? null, ctx: item.ctx || null, cn: item.cn || null,
+    en: null, alts: [], tip: null, ph: null, phj: null, created: Date.now(), S: null, last: 0, lapses: 0, ans: null };
+}
+const baseCard = id => S.cards[id] || newCard(S.session.fresh.get(id) || S.poolIndex.get(id));
 function nextQuestion() {
   const ss = S.session;
-  if (!ss.queue.length) { S.view = "done"; render(); return; }
+  if (!ss.queue.length) { S.view = "done"; render(); scheduleRefit(); return; }
   const id = ss.queue.shift();
-  ss.kind = ss.seen[id] ? "again" : S.cards[id] ? "review" : "new";
+  ss.kind = ss.seen[id] ? "again" : !S.cards[id] ? "new" : ss.probes.has(id) ? "probe" : "review";
   ss.seen[id] = (ss.seen[id] || 0) + 1;
   Object.assign(ss, { cur: id, phase: ss.kind === "new" ? "learn-loading" : "ask", answer: "", result: null, lesson: null, error: null, giveUp: false });
   S.view = "quiz"; render(); window.scrollTo(0, 0);
@@ -633,8 +853,9 @@ function nextQuestion() {
 }
 const lessons = new Map();
 function lessonFor(item) {
-  if (!lessons.has(item.id)) lessons.set(item.id, teach(item.ja).catch(e => { lessons.delete(item.id); throw e; }));
-  return lessons.get(item.id);
+  const key = item.id + (S.settings.sendContext ? ":c" : "");
+  if (!lessons.has(key)) lessons.set(key, teach(item).catch(e => { lessons.delete(key); throw e; }));
+  return lessons.get(key);
 }
 function prefetchNext() {
   const ss = S.session, nid = ss && ss.queue[0];
@@ -656,17 +877,17 @@ async function loadLesson() {
     ss.phase = "error"; ss.error = (e && e.code) || "upstream_error"; render(); scrollToEnd();
   }
 }
-// 「覚えた」→ 翌日に英作文として初出題（正解するたびに3日後、約1週間後…と間隔が伸びる）
+// 「覚えた」：あなたの記憶モデルが「90%を下回る」と見積もった頃に初出題
 function learned() {
   const ss = S.session, c0 = ss && ss.lesson;
   if (!c0) return;
-  const now = Date.now();
-  const c = { ...c0, created: now, last: now, reps: 1, ivl: 1, due: startOfDay(now) + DAY, hist: ["learned"] };
-  S.cards[c.id] = c; persistCard(c);
+  const now = Date.now(), ev = { id: c0.id, t: now, k: "learn" };
+  const st = step(null, ev, S.mem);
+  const c = { ...c0, created: now, S: st.S, last: st.last, lapses: 0 };
+  S.cards[c.id] = c; S.log.push(ev); saveCards(); saveLog();
   if (!ss.first[c.id]) ss.first[c.id] = "learned";
   ss.lesson = null;
 }
-const baseCard = id => S.cards[id] || newCard(S.session.fresh.get(id) || S.poolIndex.get(id));
 async function check(giveUp) {
   const ss = S.session, id = ss.cur, base = baseCard(id);
   const answer = giveUp ? "" : ss.answer.trim();
@@ -676,7 +897,7 @@ async function check(giveUp) {
   render(); scrollToEnd();
   if (giveUp && base.en) { reveal(base, { model: base.en, alts: base.alts, verdict: "wrong", feedback: "", phrase: base.ph, phrase_ja: base.phj }); return; }
   try {
-    const res = await grade(base.ja, answer, base.en);
+    const res = await grade(base, answer, base.en);
     if (S.session !== ss || ss.cur !== id) return;
     reveal(base, res);
   } catch (e) {
@@ -689,16 +910,21 @@ function reveal(base, res) {
   const verdict = ss.giveUp ? "wrong" : res.verdict;
   const card = { ...base, en: res.model || base.en, alts: res.alts && res.alts.length ? res.alts : base.alts || [],
     tip: res.feedback || base.tip, ph: res.phrase || base.ph, phj: res.phrase_ja || base.phj, ans: ss.giveUp ? null : ss.shown };
-  const now = Date.now();
-  ss.result = { res, card, chosen: verdict, auto: verdict, options: { correct: schedule(card, "correct", now), close: schedule(card, "close", now), wrong: schedule(card, "wrong", now) } };
+  const now = Date.now(), st = stateOf(card);
+  const opt = k => step(st, { id: card.id, t: now, k }, S.mem);
+  ss.result = { res, card, now, chosen: verdict, auto: verdict, options: { correct: opt("correct"), close: opt("close"), wrong: opt("wrong") } };
   ss.phase = "result"; render(); scrollToEnd();
   if (S.settings.autoSpeak) TTS.speak(card.en, true);
 }
 function commit() {
   const ss = S.session, r = ss && ss.result;
   if (!r) return;
-  const final = r.options[r.chosen];
-  S.cards[final.id] = final; persistCard(final);
+  const c = r.card, st = stateOf(c);
+  const ev = { id: c.id, t: r.now, k: r.chosen };
+  if (st) { ev.p = Math.round(R((r.now - st.last) / DAY, st.S) * 1000) / 1000; ev.dt = Math.round((r.now - st.last) / DAY * 100) / 100; }
+  const ns = step(st, ev, S.mem);
+  const final = { ...c, S: ns.S, last: ns.last, lapses: ns.lapses };
+  S.cards[final.id] = final; S.log.push(ev); saveCards(); saveLog();
   if (!ss.first[final.id]) ss.first[final.id] = r.chosen;
   if (r.chosen === "wrong") {
     if (!ss.missed.includes(final.id)) ss.missed.push(final.id);
@@ -712,8 +938,10 @@ function quit() {
   const hadAny = S.session && Object.keys(S.session.first).length;
   S.view = hadAny ? "done" : "home";
   if (!hadAny) { S.session = null; S.plan = null; }
-  render();
+  render(); scheduleRefit();
 }
+let refitTimer = null;
+function scheduleRefit() { clearTimeout(refitTimer); refitTimer = setTimeout(() => { fitModel(false); S.plan = null; if (S.view === "home") render(); }, 400); }
 function scrollToEnd() {
   const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
   requestAnimationFrame(() => document.querySelector(".thread-end")?.scrollIntoView({ behavior: reduce ? "auto" : "smooth", block: "end" }));
@@ -722,6 +950,7 @@ function scrollToEnd() {
 /* ============ 画面 ============ */
 const app = document.getElementById("app");
 function render() {
+  if (!S.ready) { app.replaceChildren(h("div", { class: "view" }, h("p", { class: "loading" }, "読み込んでいます…"))); return; }
   const v = S.view;
   const node = v === "setup" ? viewSetup() : v === "quiz" ? viewQuiz() : v === "done" ? viewDone()
     : v === "weak" ? viewWeak() : v === "settings" ? viewSettings() : viewHome();
@@ -730,13 +959,11 @@ function render() {
 function go(view) { stopListening(); S.view = view; if (view === "home") S.plan = null; render(); window.scrollTo(0, 0); }
 
 /* --- はじめての読み込み / トーク追加 --- */
-const fileHelp = () => null;
 function viewSetup() {
   const st = S.setup;
   const back = (S.pool || allCards().length) ? h("button", { class: "link", type: "button", onclick: () => { S.setup = null; go("home"); } }, "戻る") : null;
-  const fileBtn = label => [h("label", { class: "btn primary block file-btn" }, label,
-    h("input", { type: "file", onchange: e => onFile(e.target.files && e.target.files[0]) })), fileHelp()];
-
+  const fileBtn = label => h("label", { class: "btn primary block file-btn" }, label,
+    h("input", { type: "file", onchange: e => onFile(e.target.files && e.target.files[0]) }));
   if (!st) {
     return h("div", { class: "view" },
       h("div", { class: "bar" }, h("div", { class: "grow" }), back),
@@ -747,11 +974,11 @@ function viewSetup() {
         h("ol", { class: "steps" },
           h("li", null, "LINEで練習に使いたいトークを開き、右上のメニュー → 設定 → 「トーク履歴を送信」で、.txtファイルを端末に保存します。"),
           h("li", null, "下のボタンから、そのファイルを選びます。読み込んだ内容はこの端末にだけ保存されます。"),
-          h("li", null, "まず英語のお手本を見て「覚えた」を押します。忘れかけた頃に英語で答える問題として出題され、まちがえた表現ほど頻繁に復習します。")),
+          h("li", null, "まず英語のお手本を見て「覚えた」を押します。忘れかけた頃に英語で答える問題として出題され、あなたの回答に合わせて出題のタイミングが調整されます。")),
         fileBtn("トーク履歴を選ぶ")));
   }
   const speakers = Object.entries(st.parsed.speakers).sort((a, b) => b[1] - a[1]);
-  const items = buildItems(st.parsed.msgs, st.me);
+  const items = buildItems(st.parsed.msgs, st.me, "preview");
   const already = S.pool ? items.filter(it => S.poolIndex.has(it.id)).length : 0;
   const examples = items.filter(it => len(it.ja) >= 8 && len(it.ja) <= 40).slice(0, 400).sort(() => Math.random() - .5).slice(0, 3);
   return h("div", { class: "view" },
@@ -764,98 +991,271 @@ function viewSetup() {
       h("select", { id: "me", onchange: e => { st.me = e.target.value; render(); } },
         speakers.map(([n, c]) => h("option", { value: n, selected: n === st.me }, `${n}（${c.toLocaleString()}件）`))),
       h("p", { class: "note", style: "margin-top:10px" }, `この名前の発言から、${items.length.toLocaleString()}問を作れます。スタンプ・写真・URL・短すぎる発言は除いています。`
-        + (already ? `うち${already.toLocaleString()}問は読み込み済みです。` : ""))),
+        + (already ? `うち${already.toLocaleString()}問は読み込み済みです（前後の文脈を追加します）。` : ""))),
     examples.length ? h("section", null, h("h2", null, "問題の例"),
       examples.map(it => h("div", { class: "row me" }, h("div", { class: "bubble mine" }, it.ja)))) : null,
     h("div", { style: "padding:8px 0 28px" },
       h("button", { class: "btn primary block", type: "button", disabled: !items.length, onclick: () => {
-        const added = addSource(st.parsed.partner, st.me, items);
-        S.setup = null; toast(added ? `${added.toLocaleString()}問を追加しました。` : "新しい問題はありませんでした。"); go("home");
+        const src = buildSource(st.parsed, st.me);
+        const added = addSource(src, buildItems(st.parsed.msgs, st.me, src.key));
+        S.setup = null; S.plan = null;
+        toast(added ? `${added.toLocaleString()}問を追加しました。` : "前後の文脈を更新しました。");
+        go("home");
       } }, "この内容で始める")));
 }
 async function onFile(file) {
   if (!file) return;
   try {
-    const text = await file.text();
-    const parsed = parseLineExport(text);
+    const parsed = parseLineExport(await file.text());
     const names = Object.keys(parsed.speakers);
     if (!parsed.msgs.length || !names.length) { toast("LINEのトーク履歴として読み取れませんでした。「トーク履歴を送信」で保存した.txtを選んでください。", 6500); return; }
     const guess = Object.entries(parsed.speakers).filter(([n]) => n !== parsed.partner).sort((a, b) => b[1] - a[1])[0];
     S.setup = { parsed, me: guess ? guess[0] : names[0], name: file.name };
     S.view = "setup"; render(); window.scrollTo(0, 0);
-  } catch (e) { toast("ファイルを読み込めませんでした。"); }
+  } catch { toast("ファイルを読み込めませんでした。"); }
 }
 
 /* --- ホーム --- */
 function viewHome() {
   if (!S.pool && !allCards().length) return viewSetup();
-  if (!S.plan && S.ready) S.plan = makePlan();
-  const plan = S.plan || { due: [], fresh: [] };
-  const total = plan.due.length + plan.fresh.length;
-  const firstId = plan.due[0] || (plan.fresh[0] && plan.fresh[0].id);
-  const firstJa = firstId ? (S.cards[firstId] || S.poolIndex.get(firstId) || {}).ja : null;
+  if (!S.plan) S.plan = makePlan();
+  const plan = S.plan;
+  const nRev = plan.reviews.length, nNew = plan.fresh.length, total = nRev + nNew;
   const unstudied = S.pool ? S.pool.items.filter(it => !S.cards[it.id]).length : 0;
 
-  const hero = h("div", { class: "hero" },
-    h("div", { class: "row me", style: "margin:0" }, h("div", { class: "bubble mine" }, !S.ready ? "…" : firstJa || "今日の分はおしまい。また明日。")),
-    h("p", { class: "prompt" }, !S.ready ? "" : firstJa ? "英語で送るなら？" : "よく続けました"));
-
-  let todayLine;
-  if (!S.ready) todayLine = h("p", { class: "today" }, "学習記録を読み込んでいます…");
-  else if (total) todayLine = h("p", { class: "today" }, "今日は ", h("b", null, `${total}問`), "（" + [plan.due.length ? `復習${plan.due.length}問` : "", plan.fresh.length ? `新しい表現${plan.fresh.length}問` : ""].filter(Boolean).join("、") + "）");
-  else todayLine = h("p", { class: "today" }, "今日の問題はすべて終わりました。");
-
-  const startBtn = total
-    ? h("button", { class: "btn primary block", type: "button", disabled: !S.ready || !hasKey(), onclick: () => startSession(S.plan) }, S.ready ? "はじめる" : "準備中…")
-    : h("button", { class: "btn ghost block", type: "button", disabled: !S.ready || !hasKey() || !unstudied, onclick: () => startSession(makePlan(5)) }, "新しい表現をあと5問");
+  const today = total
+    ? h("div", { class: "todayrow" },
+        h("div", { class: "info" }, h("span", { class: "lbl" }, "今日の問題"),
+          h("span", { class: "num" }, h("b", null, total), "問", h("small", null, "（" + [nRev ? `復習${nRev}` : "", nNew ? `新しい表現${nNew}` : ""].filter(Boolean).join("・") + "）"))),
+        h("button", { class: "btn primary", type: "button", disabled: !hasKey(), onclick: () => startSession(S.plan) }, "はじめる"))
+    : h("div", { class: "todayrow" },
+        h("div", { class: "info" }, h("span", { class: "lbl" }, "今日の問題"), h("span", { class: "num" }, "すべて終わりました")),
+        h("button", { class: "btn ghost", type: "button", disabled: !hasKey() || !unstudied, onclick: () => startSession(makePlan(5)) }, "あと5問"));
 
   const banners = [];
   if (!hasKey()) banners.push(h("p", { class: "banner" }, "お手本と採点には、ClaudeのAPIキーが必要です。",
     h("br"), h("button", { class: "link", style: "padding-left:0", type: "button", onclick: () => go("settings") }, "設定でAPIキーを入力する")));
-  if (!S.pool) banners.push(h("p", { class: "banner" }, "トーク履歴がこの端末に読み込まれていないため、新しい問題は出せません（復習はできます）。",
+  if (!S.pool) banners.push(h("p", { class: "banner" }, "トーク履歴が読み込まれていないため、新しい問題は出せません（復習はできます）。",
     h("br"), h("button", { class: "link", style: "padding-left:0", type: "button", onclick: () => go("setup") }, "トーク履歴を読み込む")));
+  else if (needsReimport() && S.settings.sendContext) banners.push(h("p", { class: "banner" }, "前後の文脈を踏まえて訳すには、トーク履歴をもう一度読み込んでください。",
+    h("br"), h("button", { class: "link", style: "padding-left:0", type: "button", onclick: () => go("setup") }, "トーク履歴を読み込み直す")));
 
-  // これからの復習（7日分）
-  const t0 = startOfDay(Date.now());
-  const counts = Array.from({ length: 7 }, () => 0);
-  for (const c of allCards()) { const d = Math.floor((startOfDay(c.due) - t0) / DAY); if (d < 7) counts[Math.max(0, d)]++; }
-  const max = Math.max(1, ...counts);
-  const fc = h("div", { class: "fc", role: "img", "aria-label": "これから7日間の復習数: " + counts.map((n, i) => `${i === 0 ? "今日" : i === 1 ? "明日" : WD[new Date(t0 + i * DAY).getDay()] + "曜"}${n}問`).join("、") },
-    counts.map((n, i) => h("div", { class: "col" + (i === 0 ? " now" : "") },
-      h("span", { class: "n" }, n || ""),
-      h("span", { class: "b", style: `height:${Math.round((n / max) * 60)}px` }),
-      h("span", { class: "d" }, i === 0 ? "今日" : i === 1 ? "明日" : WD[new Date(t0 + i * DAY).getDay()]))));
-
-  const weak = allCards().filter(c => c.lapses > 0 && c.en).sort((a, b) => b.last - a.last).slice(0, 3);
-  const studied = allCards().length;
-  const src = S.pool ? S.pool.sources.map(s => s.partner).join("、") : "";
-
+  const studied = allCards().filter(c => c.last).length;
   return h("div", { class: "view" },
     h("div", { class: "bar" }, h("h1", null, "トーク英作"),
       h("button", { class: "link", type: "button", onclick: () => go("weak") }, "苦手"),
       h("button", { class: "link", type: "button", onclick: () => go("settings") }, "設定")),
-    hero, todayLine, startBtn, banners,
-    studied ? h("section", { style: "margin-top:20px" }, h("h2", null, "これからの復習"), fc) : null,
-    weak.length ? h("section", null, h("h2", null, "最近まちがえた表現"),
-      weak.map(cardItem), h("button", { class: "link", style: "padding-left:0;margin-top:4px", type: "button", onclick: () => go("weak") }, "苦手な表現をすべて見る")) : null,
-    h("p", { class: "foot" }, studied ? `${studied.toLocaleString()}件の表現を学習中。` : "", S.pool ? `まだ出ていない問題が${unstudied.toLocaleString()}問あります（${src}とのトーク）。` : ""));
+    today, banners, calendar(),
+    h("p", { class: "foot" }, studied ? `${studied.toLocaleString()}件の表現を学習中。` : "", S.pool ? `まだ出ていない問題が${unstudied.toLocaleString()}問あります。` : ""));
+}
+
+/* --- カレンダー（月・週・日） --- */
+const CAL = { mode: "month", sel: startOfDay(Date.now()), open: null, tap: { day: 0, t: 0 } };
+function calIndex() {
+  const now = Date.now(), today = startOfDay(now);
+  const done = new Map();
+  for (const e of S.log) {
+    if (!S.cards[e.id]) continue;
+    const d = startOfDay(e.t);
+    if (!done.has(d)) done.set(d, new Set());
+    done.get(d).add(e.id);
+  }
+  const planned = new Map(), doneToday = done.get(today) || new Set();
+  for (const c of allCards()) {
+    if (!c.last || !c.en) continue;
+    let d = startOfDay(dueOf(c));
+    if (d < today) d = today;
+    if (d === today && doneToday.has(c.id)) continue;
+    if (!planned.has(d)) planned.set(d, []);
+    planned.get(d).push(c.id);
+  }
+  return { done, planned, today, now };
+}
+function dayDots(ix, day) {
+  const done = [...(ix.done.get(day) || [])].map(id => S.cards[id]).filter(Boolean)
+    .map(c => ({ c, lv: levelOf(c, ix.now) })).sort((a, b) => a.lv - b.lv);
+  const plan = day >= ix.today ? (ix.planned.get(day) || []).map(id => S.cards[id]).filter(Boolean)
+    .map(c => ({ c, lv: levelOf(c, ix.now) })).sort((a, b) => a.lv - b.lv) : [];
+  return { done, plan };
+}
+const nextLine = (c, now) => (dueOf(c) <= now ? "今日の復習に入っています" : "次の出題 " + fmtMD(dueOf(c)));
+function calMove(dir) {
+  if (CAL.mode === "month") {
+    const d = new Date(CAL.sel), day = d.getDate();
+    d.setDate(1); d.setMonth(d.getMonth() + dir);
+    d.setDate(Math.min(day, new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate()));
+    CAL.sel = startOfDay(d);
+  } else CAL.sel = addDays(CAL.sel, dir * (CAL.mode === "week" ? 7 : 1));
+  CAL.open = null; render();
+}
+function calZoom(dir) {
+  const order = ["month", "week", "day"];
+  const next = order[clamp(order.indexOf(CAL.mode) + dir, 0, 2)];
+  if (next !== CAL.mode) { CAL.mode = next; CAL.open = null; render(); }
+}
+function calTitle(ix) {
+  const d = new Date(CAL.sel);
+  if (CAL.mode === "month") return `${d.getFullYear()}年${d.getMonth() + 1}月`;
+  if (CAL.mode === "day") return fmtMDW(CAL.sel);
+  const s = addDays(CAL.sel, -d.getDay()), e = addDays(s, 6), sd = new Date(s), ed = new Date(e);
+  return `${sd.getMonth() + 1}月${sd.getDate()}日〜` + (sd.getMonth() === ed.getMonth() ? "" : `${ed.getMonth() + 1}月`) + `${ed.getDate()}日`;
+}
+function calendar() {
+  const ix = calIndex();
+  const unit = { month: "月", week: "週", day: "日" }[CAL.mode];
+  const zbtn = (m, label) => h("button", { type: "button", "aria-pressed": String(CAL.mode === m), onclick: () => { CAL.mode = m; CAL.open = null; render(); } }, label);
+  const body = CAL.mode === "month" ? monthView(ix) : CAL.mode === "week" ? weekView(ix) : dayView(ix);
+  const card = h("div", { class: "cal", "aria-label": "学習カレンダー" },
+    h("div", { class: "zseg", role: "group", "aria-label": "表示の単位" }, zbtn("month", "月"), zbtn("week", "週"), zbtn("day", "日")),
+    h("div", { class: "cal-head" },
+      h("div", { class: "ttl" }, calTitle(ix), CAL.mode === "day" && CAL.sel === ix.today ? h("small", null, "今日") : null),
+      h("button", { class: "nav-btn", type: "button", "aria-label": "前の" + unit, html: ICON.prev, onclick: () => calMove(-1) }),
+      h("button", { class: "nav-btn", type: "button", "aria-label": "次の" + unit, html: ICON.next, onclick: () => calMove(1) })),
+    body,
+    CAL.mode === "day" ? null : h("div", { class: "legend" },
+      h("span", null, "定着度"), h("span", null, "低"),
+      h("span", { class: "ramp", "aria-hidden": "true" }, [1, 2, 3, 4, 5].map(l => h("span", { class: "dot s9 l" + l }))),
+      h("span", null, "高"),
+      h("span", { class: "plan-key" }, h("span", { class: "dot s9 plan", "aria-hidden": "true" }), "復習予定")));
+  attachGestures(card);
+  return [card, CAL.mode === "month" ? monthSummary(ix) : null];
+}
+// ピンチで拡大・縮小、横スワイプで前後へ
+function attachGestures(el) {
+  let pinch = null, swipe = null;
+  const dist = ts => Math.hypot(ts[0].clientX - ts[1].clientX, ts[0].clientY - ts[1].clientY);
+  el.addEventListener("touchstart", e => {
+    if (e.touches.length === 2) { pinch = { d0: dist(e.touches) }; swipe = null; }
+    else if (e.touches.length === 1) swipe = { x: e.touches[0].clientX, y: e.touches[0].clientY, t: Date.now() };
+  }, { passive: true });
+  el.addEventListener("touchmove", e => {
+    if (pinch && e.touches.length === 2) {
+      const r = dist(e.touches) / pinch.d0;
+      if (r > 1.3) { pinch = null; calZoom(1); } else if (r < 0.75) { pinch = null; calZoom(-1); }
+    }
+  }, { passive: true });
+  el.addEventListener("touchend", e => {
+    if (swipe && e.changedTouches.length === 1 && !pinch) {
+      const dx = e.changedTouches[0].clientX - swipe.x, dy = e.changedTouches[0].clientY - swipe.y;
+      if (Math.abs(dx) > 60 && Math.abs(dx) > 2 * Math.abs(dy) && Date.now() - swipe.t < 700) calMove(dx < 0 ? 1 : -1);
+    }
+    if (e.touches.length === 0) { pinch = null; swipe = null; }
+  }, { passive: true });
+}
+function tapDay(day) {
+  const t = Date.now();
+  if (CAL.tap.day === day && t - CAL.tap.t < 400) { CAL.tap = { day: 0, t: 0 }; CAL.sel = day; CAL.mode = "day"; render(); return; }
+  CAL.tap = { day, t }; CAL.sel = day; render();
+}
+function monthView(ix) {
+  const sel = new Date(CAL.sel), y = sel.getFullYear(), mo = sel.getMonth();
+  const lead = new Date(y, mo, 1).getDay(), nDays = new Date(y, mo + 1, 0).getDate();
+  const cells = [];
+  for (let i = 0; i < lead; i++) cells.push(h("div", { class: "mcell", "aria-hidden": "true" }));
+  for (let d = 1; d <= nDays; d++) {
+    const day = new Date(y, mo, d).getTime();
+    const { done, plan } = dayDots(ix, day);
+    const all = [...done.map(x => "l" + x.lv), ...plan.map(() => "plan")];
+    const cls = ["mcell", day === ix.today ? "today" : "", day === CAL.sel ? "sel" : "", day > ix.today ? "future" : ""].filter(Boolean).join(" ");
+    cells.push(h("button", { class: cls, type: "button", "aria-pressed": String(day === CAL.sel),
+      "aria-label": `${mo + 1}月${d}日、${done.length}問` + (plan.length ? `、復習予定${plan.length}問` : ""), onclick: () => tapDay(day) },
+      h("span", { class: "num" }, d),
+      h("span", { class: "mdots", "aria-hidden": "true" }, all.slice(0, 24).map(k => h("span", { class: "dot " + k }))),
+      h("span", { class: "more", "aria-hidden": "true" }, all.length > 24 ? "+" + (all.length - 24) : "")));
+  }
+  return [h("div", { class: "wk", "aria-hidden": "true" }, WD.map(w => h("div", null, w))), h("div", { class: "mgrid" }, cells)];
+}
+function monthSummary(ix) {
+  const { done, plan } = dayDots(ix, CAL.sel);
+  if (!done.length && !plan.length) return h("div", { class: "msum" }, h("div", { class: "row1" }, h("b", null, fmtMDW(CAL.sel)), h("span", null, "問題はありません")));
+  const weak = done.filter(x => x.lv === 1).length;
+  return h("div", { class: "msum" },
+    h("div", { class: "row1" }, h("b", null, fmtMDW(CAL.sel)),
+      h("span", null, [done.length ? `${done.length}問` : "", plan.length ? `復習予定${plan.length}問` : ""].filter(Boolean).join("、")),
+      h("span", { class: "grow", style: "flex:1" }),
+      h("button", { class: "link", type: "button", onclick: () => { CAL.mode = "day"; render(); } }, "日表示で見る")),
+    h("div", { class: "dots", "aria-hidden": "true" }, [...done.map(x => h("span", { class: "dot m l" + x.lv })), ...plan.map(() => h("span", { class: "dot m plan" }))]),
+    weak ? h("p", { class: "note", style: "margin:0" }, `まだ不安定な表現が${weak}つあります。`) : null);
+}
+function weekView(ix) {
+  const start = addDays(CAL.sel, -new Date(CAL.sel).getDay());
+  const rows = [];
+  for (let i = 0; i < 7; i++) {
+    const day = addDays(start, i), dd = new Date(day);
+    const { done, plan } = dayDots(ix, day);
+    const open = CAL.open && CAL.open.day === day ? CAL.open : null;
+    const pick = id => () => { CAL.open = open && open.id === id ? null : { day, id }; CAL.sel = day; render(); };
+    const dots = [
+      ...done.map(x => h("button", { class: "wdot" + (open && open.id === x.c.id ? " picked" : ""), type: "button", "aria-label": `${LV_NAME[x.lv]}：${x.c.ja}`, onclick: pick(x.c.id) }, h("span", { class: "dot m l" + x.lv }))),
+      ...plan.map(x => h("button", { class: "wdot" + (open && open.id === x.c.id ? " picked" : ""), type: "button", "aria-label": `復習予定：${x.c.ja}`, onclick: pick(x.c.id) }, h("span", { class: "dot m plan" })))
+    ];
+    const count = [done.length ? `${done.length}問` : "", plan.length ? `予定${plan.length}問` : ""].filter(Boolean).join("・");
+    rows.push(h("div", { class: "wrow" + (open ? " open" : "") },
+      h("div", { class: "wline" },
+        h("div", { class: "wlab" },
+          h("div", null, h("span", { class: "wnum" + (day === ix.today ? " today" : day > ix.today ? " future" : "") }, dd.getDate()),
+            h("span", { class: "wwd" }, WD[dd.getDay()] + (day === ix.today ? "・今日" : ""))),
+          h("span", { class: "wcount" }, count)),
+        h("div", { class: "wdots" }, dots)),
+      open ? popCard(ix, day, open.id) : null));
+  }
+  return h("div", null, rows);
+}
+function popCard(ix, day, id) {
+  const c = S.cards[id];
+  if (!c) return null;
+  const lv = levelOf(c, ix.now);
+  return h("div", { class: "pop" },
+    h("div", { class: "pop-meta" }, h("span", { class: "dot s10 l" + lv }), h("span", null, LV_NAME[lv]), h("span", { class: "grow" }), h("span", null, nextLine(c, ix.now))),
+    h("div", { class: "pop-ja" }, c.ja),
+    h("div", { class: "en-line" }, h("div", { class: "txt", lang: "en" }, smart(c.en)), speakBtn(c.en)),
+    h("button", { class: "link", style: "padding-left:0;align-self:flex-start", type: "button", onclick: () => { CAL.mode = "day"; CAL.sel = day; CAL.open = null; render(); } }, "この日の問題をすべて見る"));
+}
+function dayItems(list, ix) {
+  const groups = [];
+  for (const l of [1, 2, 3, 4, 5]) {
+    const g = list.filter(x => x.lv === l);
+    if (!g.length) continue;
+    groups.push(h("div", { class: "dgroup" }, h("span", { class: "dot s12 l" + l, "aria-hidden": "true" }), h("span", null, LV_NAME[l]), h("span", null, `${g.length}問`)));
+    for (const x of g) groups.push(h("div", { class: "ditem" },
+      h("div", { class: "body" },
+        h("div", { class: "ja" }, x.c.ja),
+        h("div", { class: "en", lang: "en" }, smart(x.c.en)),
+        h("div", { class: "meta" }, (x.c.lapses ? `まちがい${x.c.lapses}回。` : "") + nextLine(x.c, ix.now))),
+      speakBtn(x.c.en)));
+  }
+  return groups;
+}
+function dayView(ix) {
+  const day = CAL.sel, { done, plan } = dayDots(ix, day);
+  if (!done.length && !plan.length) return h("p", { class: "cal-empty" }, day > ix.today ? "この日に復習する予定の問題はありません。" : "この日は問題に答えていません。");
+  const main = done.length ? done : plan;
+  const counts = [0, 0, 0, 0, 0, 0];
+  main.forEach(x => counts[x.lv]++);
+  const label = done.length ? `この日に出た${done.length}問の、いまの定着度` : `この日に復習する予定の${plan.length}問の、いまの定着度`;
+  return h("div", null,
+    h("div", { class: "dsum" }, h("div", { class: "note" }, label),
+      h("div", { class: "dbar", role: "img", "aria-label": [1, 2, 3, 4, 5].filter(l => counts[l]).map(l => `${LV_NAME[l]}${counts[l]}問`).join("、") },
+        [1, 2, 3, 4, 5].filter(l => counts[l]).map(l => h("span", { class: "b" + l, style: `flex-grow:${counts[l]}` })))),
+    dayItems(main, ix),
+    done.length && plan.length ? [h("div", { class: "dgroup", style: "padding-top:20px" }, h("span", { class: "dot s12 plan", "aria-hidden": "true" }), h("span", null, "このあと復習する予定"), h("span", null, `${plan.length}問`)),
+      dayItems(plan, ix)] : null);
 }
 function cardItem(c) {
-  const days = Math.round((startOfDay(c.due) - startOfDay(Date.now())) / DAY);
+  const now = Date.now();
   return h("div", { class: "item" },
     h("div", { class: "ja" }, c.ja),
     h("div", { class: "en-line", style: "margin-top:4px" }, h("div", { class: "txt" }, smart(c.en)), speakBtn(c.en)),
     c.ph ? h("div", { class: "meta" }, h("span", { class: "phrase" }, smart(c.ph)), c.phj ? `：${c.phj}` : "") : null,
-    h("div", { class: "meta" }, (c.lapses ? `まちがい${c.lapses}回。` : "") + (c.due <= Date.now() ? "今日の復習に入っています。" : `次の出題は${days === 1 ? "明日" : days <= 0 ? "今日" : fmtMD(c.due)}。`)));
+    h("div", { class: "meta" }, (c.lapses ? `まちがい${c.lapses}回。` : "") + nextLine(c, now) + "。"));
 }
 
 /* --- 出題 --- */
 function viewQuiz() {
   const ss = S.session, id = ss.cur, base = baseCard(id);
-  const ctxItem = S.poolIndex.get(id);
+  const cx = contextOf(itemFor(id) || base);
   const doneCount = Object.keys(ss.seen).length;
-  const kindLabel = { new: "新しい表現", review: "復習", again: "もう一度" }[ss.kind];
-
+  const kindLabel = { new: "新しい表現", review: "復習", probe: "確認", again: "もう一度" }[ss.kind];
   const header = h("div", null,
     h("div", { class: "bar" },
       h("button", { class: "link", style: "padding-left:0", type: "button", onclick: quit }, "終了"),
@@ -864,13 +1264,14 @@ function viewQuiz() {
       h("span", { class: "count" }, `${Math.min(doneCount, ss.total)} / ${ss.total}`)),
     h("div", { class: "progress", role: "progressbar", "aria-valuemin": 0, "aria-valuemax": ss.total, "aria-valuenow": doneCount },
       h("span", { style: `width:${Math.round((Math.min(doneCount, ss.total) / ss.total) * 100)}%` })));
-
+  const ctxRows = cx.before.slice(-2).map(m => m.me
+    ? h("div", { class: "row me" }, h("div", { class: "bubble ctxme" }, m.text))
+    : h("div", { class: "row them" }, h("div", { class: "who" }, m.name), h("div", { class: "bubble them small" }, m.text)));
   const thread = h("div", { class: "thread" },
     base.d ? h("div", { class: "date-chip" }, fmtDate(base.d)) : null,
-    ctxItem && ctxItem.ctx ? h("div", { class: "row them" }, h("div", { class: "who" }, ctxItem.cn), h("div", { class: "bubble them" }, ctxItem.ctx)) : null,
+    ctxRows,
     h("div", { class: "row me" }, h("div", { class: "bubble mine" }, base.ja),
       ss.phase === "ask" || ss.kind === "new" ? h("div", { class: "under" }, "あなたが送ったメッセージ") : null));
-
   if (ss.phase !== "ask" && ss.kind !== "new") {
     if (ss.giveUp) thread.append(h("div", { class: "row me" }, h("div", { class: "under" }, "答えを見ました")));
     else thread.append(h("div", { class: "row me" }, h("div", { class: "bubble en", lang: "en" }, ss.shown)));
@@ -881,7 +1282,6 @@ function viewQuiz() {
   if (ss.phase === "error") thread.append(errorBubble(ss.error));
   if (ss.phase === "result") thread.append(resultBubble(ss.result));
   thread.append(h("div", { class: "thread-end" }));
-
   return h("div", { class: "view" }, header, thread, ss.kind === "new" ? learnComposer(ss) : ss.phase === "result" ? resultComposer(ss.result) : askComposer(ss));
 }
 function askComposer(ss) {
@@ -903,13 +1303,12 @@ function askComposer(ss) {
 }
 function errorBubble(code) {
   const ss = S.session;
-  const permanent = PERMANENT.has(code);
   return h("div", { class: "row them" }, h("div", { class: "who" }, "コーチ"),
     h("div", { class: "coach", role: "alert" },
       h("p", null, errorCopy(code)),
       h("div", { class: "btn-row" },
         PERMANENT.has(code) ? h("button", { class: "btn ghost", type: "button", onclick: () => go("settings") }, "設定を開く") : null,
-        !permanent && code !== "refused" ? h("button", { class: "btn ghost", type: "button", onclick: () => ss.kind === "new" ? loadLesson() : check(ss.giveUp) }, "もう一度") : null,
+        !PERMANENT.has(code) && code !== "refused" ? h("button", { class: "btn ghost", type: "button", onclick: () => (ss.kind === "new" ? loadLesson() : check(ss.giveUp)) }, "もう一度") : null,
         h("button", { class: "btn ghost", type: "button", onclick: nextQuestion }, "この問題をとばす"))));
 }
 const VERDICT = { correct: "○ 正解", close: "△ おしい", wrong: "× もう一歩" };
@@ -944,19 +1343,20 @@ function lessonBubble(c) {
 }
 function learnComposer(ss) {
   const ready = ss.phase === "learn";
+  const when = whenText(Date.now() + S.mem.s0 * DAY);
   return h("div", { class: "composer" },
-    h("p", { class: "next-due", style: "margin-top:0" }, "声に出して言えるようになったら「覚えた」へ。明日、英語で答える問題として出ます。"),
+    h("p", { class: "next-due", style: "margin-top:0" }, `声に出して言えるようになったら「覚えた」へ。${when === "今日" ? "今日のうちに" : when + "、"}英語で答える問題として出ます。`),
     h("div", { class: "btn-row" }, h("button", { class: "btn primary", type: "button", disabled: !ready, onclick: () => { learned(); nextQuestion(); } }, ss.phase === "learn-loading" ? "お手本を用意しています…" : "覚えた")));
 }
 function resultComposer(r) {
   const ss = S.session;
   const nextText = () => {
-    const o = r.options[r.chosen];
-    return r.chosen === "wrong" ? (ss.seen[o.id] < 3 ? "このあと、もう一度出ます。" : "10分後から、また復習に出ます。") : `次の出題は${relDays(o.ivl)}です。`;
+    if (r.chosen === "wrong") return ss.seen[r.card.id] < 3 ? "このあと、もう一度出ます。" : "近いうちに、また復習に出ます。";
+    return `次の出題は${whenText(r.now + r.options[r.chosen].S * DAY)}です。`;
   };
   const due = h("p", { class: "next-due" }, nextText());
   const seg = h("div", { class: "seg", role: "group", "aria-label": "判定（タップで変更できます）" },
-    ["correct", "close", "wrong"].map(v => h("button", { class: v, type: "button", "aria-pressed": String(r.chosen === v), onclick: e => {
+    ["correct", "close", "wrong"].map(v => h("button", { class: v, type: "button", "aria-pressed": String(r.chosen === v), onclick: () => {
       r.chosen = v;
       seg.querySelectorAll("button").forEach(b => b.setAttribute("aria-pressed", String(b.classList.contains(v))));
       due.textContent = nextText();
@@ -968,10 +1368,9 @@ function resultComposer(r) {
 
 /* --- 結果 --- */
 function doneSummary(firsts, n) {
-  const L = n("learned"), R = firsts.length - L;
-  const parts = [];
+  const L = n("learned"), Rv = firsts.length - L, parts = [];
   if (L) parts.push(`新しい表現を${L}個覚えました。`);
-  if (R) parts.push(`復習${R}問に答えました（正解${n("correct")}、おしい${n("close")}、もう一歩${n("wrong")}）。`);
+  if (Rv) parts.push(`復習${Rv}問に答えました（正解${n("correct")}、おしい${n("close")}、もう一歩${n("wrong")}）。`);
   return parts.join("");
 }
 function viewDone() {
@@ -980,21 +1379,17 @@ function viewDone() {
   const n = v => firsts.filter(x => x === v).length;
   const missed = ss ? ss.missed.map(id => S.cards[id]).filter(Boolean) : [];
   const learnedCards = ss ? Object.entries(ss.first).filter(([, v]) => v === "learned").map(([id]) => S.cards[id]).filter(Boolean) : [];
-  const finish = () => { S.session = null; go("home"); };
   return h("div", { class: "view" },
-    h("div", { class: "intro" },
-      h("p", { class: "title" }, "おつかれさまでした"),
-      h("p", null, doneSummary(firsts, n))),
-    learnedCards.length ? h("section", null, h("h2", null, "今日覚えた表現"),
-      h("p", { class: "note", style: "margin:-6px 0 4px" }, "明日から、英語で答える問題として出題します。"), learnedCards.map(cardItem)) : null,
+    h("div", { class: "intro" }, h("p", { class: "title" }, "おつかれさまでした"), h("p", null, doneSummary(firsts, n))),
+    learnedCards.length ? h("section", null, h("h2", null, "今日覚えた表現"), learnedCards.map(cardItem)) : null,
     missed.length ? h("section", null, h("h2", null, "今日まちがえた表現"),
       h("p", { class: "note", style: "margin:-6px 0 4px" }, "忘れかけた頃に、また出題します。"), missed.map(cardItem)) : null,
-    h("div", { style: "padding:12px 0 28px" }, h("button", { class: "btn primary block", type: "button", onclick: finish }, "ホームへ")));
+    h("div", { style: "padding:12px 0 28px" }, h("button", { class: "btn primary block", type: "button", onclick: () => { S.session = null; go("home"); } }, "ホームへ")));
 }
 
 /* --- 苦手 --- */
 function viewWeak() {
-  const list = allCards().filter(c => c.lapses > 0 && c.en).sort((a, b) => (b.lapses - a.lapses) || (b.last - a.last));
+  const list = allCards().filter(c => c.lapses > 0 && c.en && c.last).sort((a, b) => (b.lapses - a.lapses) || (b.last - a.last));
   return h("div", { class: "view" },
     h("div", { class: "bar" }, h("button", { class: "link", style: "padding-left:0", type: "button", onclick: () => go("home") }, "戻る"), h("h1", { style: "font-size:1.0625rem" }, "苦手な表現")),
     list.length ? h("div", null, h("p", { class: "note" }, `${list.length}件。まちがえた回数が多い順です。`), list.map(cardItem))
@@ -1003,19 +1398,31 @@ function viewWeak() {
 
 /* --- 設定 --- */
 let resetArmed = false;
+function memoryNotes() {
+  const m = S.mem, c = calibInfo(), eps = Math.round(exploreShare() * 100);
+  const out = [];
+  if (!m.fitted) out.push(`回答が20件たまると、あなた向けの調整を始めます（いま${m.n || 0}件）。それまでは標準的な忘れ方で計算します。`);
+  else {
+    out.push(`あなたの回答${m.n.toLocaleString()}件から調整しています。`);
+    out.push(`覚えた直後の記憶の持ち：約${m.s0 < 1 ? Math.round(m.s0 * 24) + "時間" : m.s0 + "日"}（標準は約1日）`);
+    out.push(`復習で記憶が伸びる度合い：標準の${m.m}倍`);
+  }
+  if (c.n >= 8) out.push(`「定着率が高い」と予測した問題の正解率：予測${Math.round(c.pred * 100)}%に対して実際${Math.round(c.act * 100)}%（直近${c.n}問）`);
+  out.push(`予測を確かめるために混ぜる問題：約${eps}%`);
+  return out;
+}
 function viewSettings() {
   const st = S.settings;
-  const segBtn = (n) => h("button", { class: "plain", type: "button", "aria-pressed": String(st.newPerDay === n), onclick: () => { st.newPerDay = n; persistSettings(); S.plan = null; render(); } }, `${n}問`);
+  const segBtn = n => h("button", { class: "plain", type: "button", "aria-pressed": String(st.newPerDay === n), onclick: () => { st.newPerDay = n; persistSettings(); S.plan = null; render(); } }, `${n}問`);
   const rateLbl = h("span", { class: "note" }, `${st.rate.toFixed(2)}倍`);
-  const sw = h("button", { class: "switch", type: "button", role: "switch", "aria-checked": String(st.autoSpeak), "aria-label": "お手本を自動で読み上げる",
-    onclick: () => { st.autoSpeak = !st.autoSpeak; sw.setAttribute("aria-checked", String(st.autoSpeak)); persistSettings(); } });
+  const sw = (on, label, fn) => { const b = h("button", { class: "switch", type: "button", role: "switch", "aria-checked": String(on), "aria-label": label, onclick: () => { fn(); b.setAttribute("aria-checked", String(b.getAttribute("aria-checked") !== "true")); } }); return b; };
   const resetBtn = h("button", { class: "btn ghost block danger", type: "button", onclick: () => {
     if (!resetArmed) { resetArmed = true; resetBtn.textContent = "もう一度タップすると、すべての学習記録を消去します"; setTimeout(() => { resetArmed = false; if (resetBtn.isConnected) resetBtn.textContent = "学習記録を消去する"; }, 4000); return; }
-    resetArmed = false; S.cards = {}; LS.del(K.cards); S.plan = null; toast("学習記録を消去しました。"); go("home");
+    resetArmed = false; S.cards = {}; S.log = []; S.mem = { m: 1, s0: 1, n: 0, nAt: 0, fitted: false, at: 0 }; LS.set(K.mem, S.mem);
+    saveCards(); saveLog(); S.plan = null; toast("学習記録を消去しました。"); go("home");
   } }, "学習記録を消去する");
-  const fileBtn = h("label", { class: "btn ghost block file-btn" }, "トーク履歴を追加する",
+  const fileBtn = h("label", { class: "btn ghost block file-btn" }, "トーク履歴を追加・読み込み直す",
     h("input", { type: "file", onchange: e => onFile(e.target.files && e.target.files[0]) }));
-
   const keyIn = h("input", { class: "text-in", id: "key", type: "password", autocomplete: "off", autocapitalize: "off", spellcheck: "false", placeholder: "sk-ant-…", value: getKey(),
     onchange: e => { setKey(e.target.value.trim()); S.plan = null; toast(getKey() ? "APIキーを保存しました。" : "APIキーを削除しました。"); } });
   const showBtn = h("button", { class: "link", type: "button", onclick: () => { const pw = keyIn.type === "password"; keyIn.type = pw ? "text" : "password"; showBtn.textContent = pw ? "隠す" : "表示"; } }, "表示");
@@ -1041,40 +1448,123 @@ function viewSettings() {
         " で作成できます。キーはこの端末にだけ保存され、Anthropic以外には送られません。"),
       h("label", { class: "field", for: "model", style: "margin-top:16px" }, "使うモデル"), modelSel,
       h("div", { style: "margin-top:12px" }, testBtn)),
+    h("section", null, h("h2", null, "翻訳と採点"),
+      h("div", { class: "row-set" }, h("span", null, "前後のやり取りも踏まえて訳す"), sw(st.sendContext, "前後のやり取りも踏まえて訳す", () => { st.sendContext = !st.sendContext; persistSettings(); })),
+      h("p", { class: "note", style: "margin:8px 0 0" }, "オンにすると、対象の発言の前3件・後ろ2件（同じ日のやり取り）も、相手の発言を含めてClaudeに送ります。")),
     h("section", null, h("h2", null, "1日の新しい問題"), h("div", { class: "seg" }, [5, 10, 20, 30].map(segBtn))),
     h("section", null,
       h("div", { class: "row-set" }, h("h2", { style: "margin:0" }, "読み上げの速さ"), rateLbl),
       h("input", { type: "range", min: "0.6", max: "1.2", step: "0.05", value: String(st.rate), "aria-label": "読み上げの速さ",
         oninput: e => { st.rate = +e.target.value; rateLbl.textContent = `${st.rate.toFixed(2)}倍`; }, onchange: persistSettings }),
       h("button", { class: "link", style: "padding-left:0", type: "button", onclick: () => TTS.speak("Hey, are you free this weekend?") }, "試しに聞く"),
-      h("div", { class: "row-set", style: "margin-top:12px" }, h("span", null, "お手本を自動で読み上げる"), sw)),
+      h("div", { class: "row-set", style: "margin-top:12px" }, h("span", null, "お手本を自動で読み上げる"), sw(st.autoSpeak, "お手本を自動で読み上げる", () => { st.autoSpeak = !st.autoSpeak; persistSettings(); }))),
+    h("section", null, h("h2", null, "あなた向けの記憶モデル"),
+      memoryNotes().map((t, i, a) => note(t, i === a.length - 1)),
+      h("p", { class: "note", style: "margin:10px 0 0" }, "カレンダーの定着度は、このモデルで計算した「1週間後にも思い出せる見込み」です。")),
     h("section", null, h("h2", null, "トーク履歴"),
-      S.pool && S.pool.sources.length
-        ? S.pool.sources.map(s => note(`${s.partner} とのトーク（${s.me}として、${s.count.toLocaleString()}問）`))
-        : note("読み込まれていません。"),
+      S.pool && S.pool.sources.length ? S.pool.sources.map(s => note(`${s.partner} とのトーク（${s.me}として、${(s.count || 0).toLocaleString()}問）` + (s.msgs ? "" : "：文脈なし"))) : note("読み込まれていません。"),
       h("div", { style: "margin-top:10px" }, fileBtn),
       S.pool ? h("button", { class: "link danger", style: "padding-left:0;margin-top:6px", type: "button", onclick: () => { S.pool = null; indexPool(); savePool(); S.plan = null; toast("読み込んだトーク履歴を削除しました。学習記録は残っています。"); render(); } }, "読み込んだトーク履歴を削除する") : null),
     h("section", null, h("h2", null, "バックアップ"),
-      h("p", { class: "note", style: "margin:0 0 10px" }, "学習記録とトーク履歴は、この端末のブラウザにだけ保存されます。機種変更やブラウザのデータ削除に備えて、ときどき保存しておくと安心です。APIキーは含まれません。"),
+      h("p", { class: "note", style: "margin:0 0 10px" }, "学習記録・回答履歴・トーク履歴は、この端末のブラウザにだけ保存されます。機種変更やブラウザのデータ削除に備えて、ときどき保存しておくと安心です。APIキーは含まれません。"),
       h("button", { class: "btn ghost block", type: "button", onclick: exportBackup }, "バックアップを保存する"),
       importBtn),
     h("section", null, h("h2", null, "データの扱い"),
-      note("トーク履歴と学習記録は、この端末にだけ保存されます。相手の発言は外に送られません。"),
-      note("お手本や採点を作るときは、問題文（あなたの発言）とあなたの回答だけが、AnthropicのClaude APIに送られます。", true)),
+      note("トーク履歴と学習記録は、この端末にだけ保存されます。"),
+      note(st.sendContext ? "お手本や採点を作るときは、問題文（あなたの発言）・あなたの回答・前後のやり取りが、AnthropicのClaude APIに送られます。" : "お手本や採点を作るときは、問題文（あなたの発言）とあなたの回答だけが、AnthropicのClaude APIに送られます。", true)),
     h("section", null, resetBtn),
     h("div", { style: "height:24px" }));
 }
 
-/* ============ 起動 ============ */
-function loadLocal() {
-  const pool = LS.get(K.pool); if (pool && Array.isArray(pool.items)) { S.pool = pool; indexPool(); }
-  const cards = LS.get(K.cards); if (cards && typeof cards === "object") S.cards = cards;
-  const st = LS.get(K.settings); if (st) Object.assign(S.settings, st);
+/* ============ バックアップ ============ */
+function exportBackup() {
+  flushAll();
+  const data = { app: "talk-eisaku", v: 3, exportedAt: new Date().toISOString(), settings: S.settings, cards: S.cards, log: S.log, pool: S.pool, mem: S.mem };
+  const url = URL.createObjectURL(new Blob([JSON.stringify(data)], { type: "application/json" }));
+  const a = h("a", { href: url, download: `talk-eisaku-backup-${new Date().toISOString().slice(0, 10)}.json` });
+  document.body.append(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 5000);
+  toast("バックアップを保存しました。");
 }
-loadLocal();
-S.ready = true;
+function mergePool(p2) {
+  if (!p2 || !Array.isArray(p2.items)) return;
+  const pool = S.pool || { v: 2, sources: [], items: [] };
+  for (const s of p2.sources || []) {
+    if (!s || !s.partner) continue;
+    const i = pool.sources.findIndex(x => (s.key && x.key === s.key) || (x.partner === s.partner && x.me === s.me));
+    if (i < 0) pool.sources.push(s); else if (s.msgs && !pool.sources[i].msgs) pool.sources[i] = s;
+  }
+  const byId = new Map(pool.items.map(i => [i.id, i])), haveJa = new Set(pool.items.map(i => i.ja));
+  for (const it of p2.items) {
+    if (!it || !it.id || !it.ja) continue;
+    const old = byId.get(it.id);
+    if (old) { if (it.src && !old.src) { old.src = it.src; old.mi = it.mi; } continue; }
+    if (haveJa.has(it.ja)) continue;
+    pool.items.push(it); haveJa.add(it.ja);
+  }
+  pool.v = 2; S.pool = pool; indexPool(); savePool();
+}
+// 以前の版（復習間隔だけを持っていた記録）を、回答履歴の形に変換する
+function convertLegacy() {
+  const have = new Set(S.log.map(e => e.id));
+  let n = 0;
+  for (const c of allCards()) {
+    if (have.has(c.id) || !c.last) continue;
+    const s = c.reps === 0 && c.lapses > 0 ? 0.3 : Math.max(0.3, c.ivl || 1);
+    if (c.created && startOfDay(c.created) !== startOfDay(c.last)) S.log.push({ id: c.id, t: c.created, k: "seen" });
+    S.log.push({ id: c.id, t: c.last, k: "init", s, l: c.lapses || 0 });
+    n++;
+  }
+  if (n) S.log.sort((a, b) => a.t - b.t);
+  return n;
+}
+async function importBackup(file) {
+  if (!file) return;
+  try {
+    const data = JSON.parse(await file.text());
+    if (!data || data.app !== "talk-eisaku" || !data.cards || typeof data.cards !== "object") throw 0;
+    let n = 0;
+    for (const [id, c] of Object.entries(data.cards)) {
+      if (!c || typeof c !== "object" || !c.ja || !c.en) continue;
+      const l = S.cards[id];
+      if (!l || (c.last || 0) > (l.last || 0)) { S.cards[id] = c; n++; }
+    }
+    if (Array.isArray(data.log)) {
+      const keyOf = e => e.id + "|" + e.t + "|" + e.k, have = new Set(S.log.map(keyOf));
+      for (const e of data.log) if (e && e.id && e.t && e.k && !have.has(keyOf(e))) { S.log.push(e); have.add(keyOf(e)); }
+      S.log.sort((a, b) => a.t - b.t);
+    }
+    convertLegacy();
+    if (data.pool) mergePool(data.pool);
+    if (data.settings && typeof data.settings === "object") { Object.assign(S.settings, data.settings); persistSettings(); }
+    fitModel(true); saveCards(); saveLog(); S.plan = null;
+    toast(`バックアップから${n.toLocaleString()}件の学習記録を復元しました。`); go("home");
+  } catch { toast("バックアップファイルとして読み取れませんでした。"); }
+}
+
+/* ============ 起動 ============ */
+async function boot() {
+  const st = LS.get(K.settings); if (st) Object.assign(S.settings, st);
+  const mem = LS.get(K.mem); if (mem) Object.assign(S.mem, mem);
+  render();
+  await Store.init();
+  let [pool, cards, log] = await Promise.all([Store.get("pool"), Store.get("cards"), Store.get("log")]);
+  let migrated = false;
+  if (!pool) { const p = LS.get(K.oldPool); if (p && Array.isArray(p.items)) { pool = p; migrated = true; } }
+  if (!cards) { const c = LS.get(K.oldCards); if (c && typeof c === "object") { cards = c; migrated = true; } }
+  S.pool = pool || null; S.cards = cards || {}; S.log = Array.isArray(log) ? log : [];
+  indexPool();
+  const converted = convertLegacy();
+  replayAll();
+  S.ready = true; render();
+  if (migrated || converted) {
+    const ok = [await Store.set("pool", S.pool), await Store.set("cards", S.cards), await Store.set("log", S.log)].every(x => x !== false);
+    if (ok && migrated) { LS.del(K.oldPool); LS.del(K.oldCards); }
+  }
+  setTimeout(() => { fitModel(false); S.plan = null; if (S.view === "home") render(); }, 300);
+}
 TTS.init();
-render();
+boot();
 if ("serviceWorker" in navigator && /^https?:$/.test(location.protocol)) navigator.serviceWorker.register("sw.js").catch(() => {});
 if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
 </script>
