@@ -1,5 +1,5 @@
 // トーク英作 service worker: アプリ本体をキャッシュしてオフラインでも起動できるようにする
-const CACHE = "talk-eisaku-v4";
+const CACHE = "talk-eisaku-v7";
 const SHELL = ["./", "./index.html", "./manifest.webmanifest", "./icon-192.png", "./icon-512.png", "./icon-maskable-512.png"];
 
 self.addEventListener("install", e => {

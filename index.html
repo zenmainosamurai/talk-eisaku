@@ -403,7 +403,7 @@ const S = {
   cards: {},             // id -> { id, ja, d, src, mi, en, alts, tip, ph, phj, created, S, last, lapses }
   log: [],               // 回答履歴 { id, t, k: learn|correct|close|wrong|init|seen, p?, dt?, s?, l? }
   mem: { m: 1, s0: 1, n: 0, nAt: 0, fitted: false, at: 0 },  // あなた向けの記憶モデル
-  settings: { newPerDay: 10, rate: 0.95, autoSpeak: true, model: "claude-haiku-5-5", sendContext: true },
+  settings: { newPerDay: 10, rate: 0.95, autoSpeak: true, model: "claude-haiku-5-5", sendContext: true, level: "intermediate" },
   ready: false, plan: null, session: null, setup: null, micBlocked: false
 };
 const allCards = () => Object.values(S.cards);
@@ -453,13 +453,14 @@ function parseLineExport(raw) {
 }
 const RE_MEDIA = /^\[[^\]\n]{1,20}\]$/;
 const RE_SYSTEM = /通話をキャンセル|通話時間|不在着信|送信を取り消し|☎|がメッセージの送信|アルバム.*(作成|追加)|ノートに投稿/;
+const coreOf = t => String(t).replace(/[\s笑ｗwW!！?？。、,.…・〜~ー\-()（）「」『』]/g, "").replace(/\p{Extended_Pictographic}/gu, "");
 function cleanText(t) {
   t = t.trim();
   if (!t || RE_MEDIA.test(t) || /https?:\/\//.test(t) || RE_SYSTEM.test(t)) return null;
   if (t.split("\n").length > 3 || len(t) > 80) return null;
-  const core = t.replace(/[\s笑ｗwW!！?？。、,.…・〜~ー\-()（）「」『』]/g, "").replace(/\p{Extended_Pictographic}/gu, "");
+  const core = coreOf(t);
   const jp = (core.match(/[\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Han}]/gu) || []).length;
-  if (jp < 5 || jp / Math.max(1, len(core)) < 0.6) return null;
+  if (!jp || jp / Math.max(1, len(core)) < 0.6) return null;
   return t;
 }
 function buildSource(parsed, me) {
@@ -623,6 +624,20 @@ function exploreShare() {
   return clamp(0.05 + 2 * Math.max(0, c.pred - c.act), 0.05, 0.35);
 }
 
+/* ============ 英語レベルと「問題にするか」の判定 ============ */
+const LEVELS = {
+  beginner: { name: "初級", note: "日常の短いやり取りも出題します。専門用語や言葉遊びが多い発言は飛ばします。",
+    rule: "The learner is a BEGINNER (about CEFR A1-A2). Worth practicing: short everyday messages that teach basic, high-frequency English (thanks, plans, feelings, simple questions and reactions). Not worth it: messages whose natural English needs advanced vocabulary or idioms, or that depend on niche jargon." },
+  intermediate: { name: "中級", note: "ふだんの会話の発言を出題します。相づちだけの返事などは飛ばします。",
+    rule: "The learner is INTERMEDIATE (about CEFR B1-B2). Worth practicing: everyday messages with something to learn (a common expression, a useful structure, natural phrasing they could reuse). Not worth it: bare acknowledgements or reactions with nothing to learn (OK, I see, thanks), and messages too specialized to be useful." },
+  advanced: { name: "上級", note: "基本的な言い回しは飛ばし、言い方に工夫がいる発言を中心に出題します。",
+    rule: "The learner is ADVANCED (about CEFR C1 or above). Worth practicing: messages whose natural English needs nuance, idioms, the right tone or phrasing a strong learner might still get wrong. Not worth it: anything a capable learner can already say easily (basic greetings, thanks, simple facts or simple questions)." }
+};
+const levelKey = () => (LEVELS[S.settings.level] ? S.settings.level : "intermediate");
+// 飛ばした発言は保存しない。アプリを開いている間だけ、同じ発言を続けて引かないよう覚えておく
+const skippedNow = new Set();
+const isSkipped = id => skippedNow.has(id);
+
 /* ============ 出題計画 ============ */
 const REVIEW_CAP = 40;
 function daySet(day) {
@@ -639,8 +654,8 @@ function sampleN(arr, n) {
 function pickFresh(n) {
   if (n <= 0 || !S.pool) return [];
   const known = new Set(allCards().map(c => c.ja));
-  const cand = S.pool.items.filter(it => !S.cards[it.id] && !known.has(it.ja));
-  const good = cand.filter(it => { const L = len(it.ja); return L >= 7 && L <= 45; });
+  const cand = S.pool.items.filter(it => !S.cards[it.id] && !known.has(it.ja) && !isSkipped(it.id));
+  const good = cand.filter(it => len(it.ja) <= 45);
   return sampleN(good.length >= n ? good : cand, n);
 }
 function makePlan(extraNew = 0) {
@@ -813,20 +828,27 @@ function teachPrompt(item) {
     contextBlock(item) + "Japanese message they actually sent:",
     "<<<" + item.ja + ">>>",
     "",
+    "First decide whether this message is worth practicing for this learner.",
+    LEVELS[levelKey()].rule,
+    "At every level, NOT worth practicing: a fragment with no clear meaning on its own even with the context, a lone name, nickname or noun, an inside joke or wordplay that only works in Japanese, gibberish, ASCII art, or a message that is mostly numbers or symbols.",
+    "When in doubt, treat it as worth practicing. Do not skip a message only because it is short.",
+    "",
     "Do this:",
+    "0. worth: true or false. skip_reason: if worth is false, a short reason IN JAPANESE (under 20 characters, for example 相づちだけで学ぶ点が少ない); otherwise an empty string. If worth is false, leave every other field as an empty string or empty list.",
     "1. model: the most natural casual English a native speaker would say to a friend with the same meaning and tone, as if saying this message out loud. Keep it short. This app is for SPEAKING practice, so write only words that are actually pronounced: no lol, lmao, haha, emoji, emoticons or other text-only markers, and spell out texting abbreviations (by the way, not btw; I don't know, not idk). Do not translate 笑 / (笑) / w or stickers; if the laugh carries meaning, convey it with spoken words instead (for example I'm kidding, or that's hilarious). Write Japanese names in romaji.",
     "2. alts: 1-2 other natural ways to say it, worded differently, following the same speaking-only rule.",
     "3. point: 1-2 short sentences IN JAPANESE on the key to saying it this way (word choice, nuance or grammar), so it is easy to remember. If the conversation changes how it should be said, mention that briefly.",
     "4. phrase: one reusable expression from the model answer; phrase_ja: its meaning in Japanese.",
     "",
     "Reply with only JSON like:",
-    '{"model":"...","alts":["..."],"point":"...","phrase":"...","phrase_ja":"..."}'
+    '{"worth":true,"skip_reason":"","model":"...","alts":["..."],"point":"...","phrase":"...","phrase_ja":"..."}'
   ].join("\n");
 }
 async function teach(item) {
   const r = await callClaude(teachPrompt(item));
-  if (!r || typeof r.model !== "string" || !r.model.trim()) throw { code: "invalid_json" };
   const str = v => (typeof v === "string" ? v.trim() : "");
+  if (r && (r.worth === false || r.worth === "false")) return { skip: true, reason: str(r.skip_reason) };
+  if (!r || typeof r.model !== "string" || !r.model.trim()) throw { code: "invalid_json" };
   return { model: speakable(r.model.trim()), alts: Array.isArray(r.alts) ? r.alts.map(str).map(speakable).filter(Boolean).slice(0, 2) : [], point: str(r.point), phrase: speakable(str(r.phrase)), phrase_ja: str(r.phrase_ja) };
 }
 const PERMANENT = new Set(["no_key", "invalid_key", "credit", "permission", "model"]);
@@ -871,15 +893,34 @@ function nextQuestion() {
 }
 const lessons = new Map();
 function lessonFor(item) {
-  const key = item.id + (S.settings.sendContext ? ":c" : "");
+  const key = item.id + ":" + levelKey() + (S.settings.sendContext ? ":c" : "");
   if (!lessons.has(key)) lessons.set(key, teach(item).catch(e => { lessons.delete(key); throw e; }));
   return lessons.get(key);
 }
+// 飛ばしたときに待たないよう、この先2問分の新しい表現を先に用意する
 function prefetchNext() {
-  const ss = S.session, nid = ss && ss.queue[0];
-  if (!nid || S.cards[nid] || ss.seen[nid]) return;
-  const it = ss.fresh.get(nid);
-  if (it) lessonFor(it).catch(() => {});
+  const ss = S.session;
+  if (!ss) return;
+  for (const nid of ss.queue.slice(0, 3).filter(id => !S.cards[id] && !ss.seen[id]).slice(0, 2)) {
+    const it = ss.fresh.get(nid);
+    if (it) lessonFor(it).catch(() => {});
+  }
+}
+// Claudeが「問題にしない」と判定したら、何も表示せずに代わりの問題を1つ入れて次へ進む
+function skipCurrent() {
+  const ss = S.session, id = ss.cur;
+  skippedNow.add(id);
+  delete ss.seen[id];
+  ss.skipped = (ss.skipped || 0) + 1;
+  let rep = null;
+  if (ss.skipped <= 20) {
+    const used = new Set([...ss.queue, ...Object.keys(ss.seen), ...ss.fresh.keys()]);
+    rep = pickFresh(10).find(x => !used.has(x.id)) || null;
+  }
+  if (rep) { ss.fresh.set(rep.id, rep); ss.queue.unshift(rep.id); }
+  else ss.total = Math.max(Object.keys(ss.seen).length, ss.total - 1);
+  S.plan = null;
+  nextQuestion();
 }
 async function loadLesson() {
   const ss = S.session, id = ss.cur, base = baseCard(id);
@@ -887,6 +928,7 @@ async function loadLesson() {
   try {
     const res = await lessonFor(base);
     if (S.session !== ss || ss.cur !== id) return;
+    if (res.skip) { skipCurrent(); return; }
     ss.lesson = { ...base, en: res.model, alts: res.alts, tip: res.point, ph: res.phrase, phj: res.phrase_ja };
     ss.phase = "learn"; render(); scrollToEnd();
     if (S.settings.autoSpeak) TTS.speak(res.model, true);
@@ -1008,7 +1050,7 @@ function viewSetup() {
       h("label", { class: "field", for: "me" }, "あなたの名前"),
       h("select", { id: "me", onchange: e => { st.me = e.target.value; render(); } },
         speakers.map(([n, c]) => h("option", { value: n, selected: n === st.me }, `${n}（${c.toLocaleString()}件）`))),
-      h("p", { class: "note", style: "margin-top:10px" }, `この名前の発言から、${items.length.toLocaleString()}問を作れます。スタンプ・写真・URL・短すぎる発言は除いています。`
+      h("p", { class: "note", style: "margin-top:10px" }, `この名前の発言から、${items.length.toLocaleString()}問を作れます。スタンプ・写真・URLだけの発言は除いています。問題にする意味があるかは、出題するときにClaudeがあなたの英語レベルに合わせて判定します。`
         + (already ? `うち${already.toLocaleString()}問は読み込み済みです（前後の文脈を追加します）。` : ""))),
     examples.length ? h("section", null, h("h2", null, "問題の例"),
       examples.map(it => h("div", { class: "row me" }, h("div", { class: "bubble mine" }, it.ja)))) : null,
@@ -1039,7 +1081,7 @@ function viewHome() {
   if (!S.plan) S.plan = makePlan();
   const plan = S.plan;
   const nRev = plan.reviews.length, nNew = plan.fresh.length, total = nRev + nNew;
-  const unstudied = S.pool ? S.pool.items.filter(it => !S.cards[it.id]).length : 0;
+  const unstudied = S.pool ? S.pool.items.filter(it => !S.cards[it.id] && !isSkipped(it.id)).length : 0;
 
   const today = total
     ? h("div", { class: "todayrow" },
@@ -1469,6 +1511,10 @@ function viewSettings() {
     h("section", null, h("h2", null, "翻訳と採点"),
       h("div", { class: "row-set" }, h("span", null, "前後のやり取りも踏まえて訳す"), sw(st.sendContext, "前後のやり取りも踏まえて訳す", () => { st.sendContext = !st.sendContext; persistSettings(); })),
       h("p", { class: "note", style: "margin:8px 0 0" }, "オンにすると、対象の発言の前3件・後ろ2件（同じ日のやり取り）も、相手の発言を含めてClaudeに送ります。")),
+    h("section", null, h("h2", null, "英語のレベル"),
+      h("div", { class: "seg" }, Object.entries(LEVELS).map(([k, v]) => h("button", { class: "plain", type: "button", "aria-pressed": String(levelKey() === k),
+        onclick: () => { st.level = k; persistSettings(); skippedNow.clear(); S.plan = null; render(); } }, v.name))),
+      h("p", { class: "note", style: "margin:8px 0 0" }, "新しい表現を出題するとき、問題にする意味があるかをClaudeがこのレベルで判定します。" + LEVELS[levelKey()].note)),
     h("section", null, h("h2", null, "1日の新しい問題"), h("div", { class: "seg" }, [5, 10, 20, 30].map(segBtn))),
     h("section", null,
       h("div", { class: "row-set" }, h("h2", { style: "margin:0" }, "読み上げの速さ"), rateLbl),
@@ -1567,6 +1613,7 @@ async function boot() {
   render();
   await Store.init();
   let [pool, cards, log] = await Promise.all([Store.get("pool"), Store.get("cards"), Store.get("log")]);
+  Store.del("skips"); // 以前の版で保存した「飛ばした発言」の記録を消す
   let migrated = false;
   if (!pool) { const p = LS.get(K.oldPool); if (p && Array.isArray(p.items)) { pool = p; migrated = true; } }
   if (!cards) { const c = LS.get(K.oldCards); if (c && typeof c === "object") { cards = c; migrated = true; } }
