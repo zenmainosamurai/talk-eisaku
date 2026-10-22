@@ -1379,9 +1379,7 @@ function viewSettings() {
     confirmBox("読み込んだトーク履歴を削除しますか？", "学習記録は残ります。もう一度使うときは、LINEから送り直してください。", "削除する", () => {
       S.pool = null; indexPool(); savePool(); S.plan = null; toast("読み込んだトーク履歴を削除しました。学習記録は残っています。"); render();
     }, true) }, "読み込んだトーク履歴を削除する");
-  const talkItem = s => h("div", { class: "talk-item" },
-    h("div", { class: "talk-name" }, `${s.partner} とのトーク`),
-    h("div", { class: "talk-meta" }, [`${(s.count || 0).toLocaleString()}問`, `あなたの名前：${s.me}`, s.msgs ? "" : "前後の文脈なし"].filter(Boolean).join("・")));
+  const talkItem = s => h("div", { class: "talk-item" }, `${s.partner} とのトーク（${(s.count || 0).toLocaleString()}問）`);
   const note = (text, last) => h("p", { class: "note", style: last ? "margin:0" : "margin:0 0 6px" }, text);
   const account = Cloud.signedIn()
     ? [note(Cloud.email()), note(syncLine(), true),

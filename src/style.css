@@ -168,8 +168,6 @@ input[type="range"] { width: 100%; accent-color: var(--me); }
 section h2 + .data-h { margin-top: 0; }
 .talk-list { display: flex; flex-direction: column; gap: 8px; margin: 0 0 12px; }
 .talk-item { padding: 12px 14px; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); }
-.talk-item .talk-name { font-weight: 700; }
-.talk-item .talk-meta { font-size: .8125rem; color: var(--muted); margin-top: 2px; }
 .howto { margin-top: 18px; padding: 16px 16px 14px; border-radius: 14px; background: var(--me-soft); font-size: .9375rem; }
 .howto h3 { margin: 0 0 12px; font-size: .9375rem; font-weight: 700; }
 .howto ol.steps li { padding-bottom: 12px; }
