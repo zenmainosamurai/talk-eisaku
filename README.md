@@ -31,8 +31,9 @@
 
 1. Supabase で新しいプロジェクトを作ります。リージョンは「Northeast Asia (Tokyo)」を選びます。
 2. 「Authentication」→「Sign In / Providers」で Email を有効にします。
-3. 「Authentication」→「Email Templates」で、「Confirm sign up」と「Magic link or OTP」の2つのメール本文に `{{ .Token }}` を入れます。これで6桁のコードがメールで届くようになります（はじめてログインする人には「Confirm sign up」が届くため、両方に入れます）。
-4. このフォルダで次を実行します（`<project-ref>` はプロジェクトのURLの xxxxx 部分）。
+3. 「Authentication」→「Emails」→「SMTP Settings」で、独自のSMTP（メール送信サービス）を設定します。Supabase標準のメール送信のままでは、メールの本文を編集できず、送れる相手（組織のメンバーだけ）と回数も限られるためです。開発中は Resend の無料プランを使います（ホスト `smtp.resend.com`、ポート `465`、ユーザー名 `resend`、パスワードは Resend の API キー、送信元 `onboarding@resend.dev`）。この送信元は Resend に登録したメールアドレスにしか送れないので、公開する前に独自ドメインを Resend で認証し、送信元をそのドメインのアドレスに変えます。
+4. 「Authentication」→「Emails」→「Templates」で、「Confirm sign up」と「Magic link or OTP」の2つのメール本文に `{{ .Token }}` を入れます。これで6桁のコードがメールで届くようになります（はじめてログインする人には「Confirm sign up」が届くため、両方に入れます）。
+5. このフォルダで次を実行します（`<project-ref>` はプロジェクトのURLの xxxxx 部分）。Claude の Supabase コネクタを使う場合は、データベースの変更と Edge Function のデプロイをコネクタから行えます。
 
    ```bash
    npx supabase login
@@ -43,7 +44,6 @@
    npx supabase functions deploy delete-account
    ```
 
-5. 公開する前に、独自のSMTP（メール送信サービス）を設定します。Supabase標準のメール送信は、組織（Organization）のメンバーのメールアドレスにしか送れず、1時間あたりの回数も少ない開発用のものです。
 6. 無料プランは7日間ほとんど使われないと一時停止します。公開するときは有料プランに切り替えてください。
 
 ## 2. アプリを動かす
@@ -104,3 +104,5 @@ npm run ios
 ## テスト
 
 `test/index.test.html` は、Supabase と Capacitor を偽物に置き換えて、ブラウザだけで動かすためのページです。Vite ではなく、ファイルをそのまま配る簡易サーバー（例：このフォルダで `python -m http.server 8080`）で `http://localhost:8080/test/index.test.html` を開くと、ネットにつながずに、ログイン・同期・出題の流れを確かめられます（確認コードは `123456`）。
+
+Android のエミュレーターで本物の Supabase につないで試すときは、`test/sample_line.txt`（テスト用の短いトーク履歴）をエミュレーターの画面にドラッグ＆ドロップすると「Download」に入るので、アプリの「トーク履歴を選ぶ」から読み込めます。
