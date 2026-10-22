@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<resources>
+<resources xmlns:tools="http://schemas.android.com/tools">
 
     <!-- Base application theme. -->
     <style name="AppTheme" parent="Theme.AppCompat.Light.DarkActionBar">
@@ -13,10 +13,22 @@
         <item name="windowActionBar">false</item>
         <item name="windowNoTitle">true</item>
         <item name="android:background">@null</item>
+        <!-- ステータスバー・ナビゲーションバーをアプリの背景色に合わせ、文字やアイコンの色をライト・ダークで切り替える -->
+        <item name="android:statusBarColor">@color/tk_background</item>
+        <item name="android:navigationBarColor">@color/tk_background</item>
+        <item name="android:windowLightStatusBar">@bool/tk_light_system_bars</item>
+        <item name="android:windowLightNavigationBar" tools:targetApi="27">@bool/tk_light_system_bars</item>
     </style>
 
 
     <style name="AppTheme.NoActionBarLaunch" parent="Theme.SplashScreen">
         <item name="android:background">@drawable/splash</item>
+        <!-- Android 12 以降の起動画面の背景色 -->
+        <item name="windowSplashScreenBackground">@color/tk_background</item>
+        <!-- ステータスバー・ナビゲーションバーをアプリの背景色に合わせ、文字やアイコンの色をライト・ダークで切り替える -->
+        <item name="android:statusBarColor">@color/tk_background</item>
+        <item name="android:navigationBarColor">@color/tk_background</item>
+        <item name="android:windowLightStatusBar">@bool/tk_light_system_bars</item>
+        <item name="android:windowLightNavigationBar" tools:targetApi="27">@bool/tk_light_system_bars</item>
     </style>
 </resources>

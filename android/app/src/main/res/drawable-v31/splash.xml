@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Android 12 以降は、OS がアイコン付きの起動画面を出す。そのあとは背景色だけにして、アイコンが二重に見えないようにする -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:drawable="@color/tk_background" />
+</layer-list>

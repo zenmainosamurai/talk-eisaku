@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- ステータスバー・ナビゲーションバーの文字やアイコンを暗い色にする（明るい背景の上で見えるように） -->
+    <bool name="tk_light_system_bars">true</bool>
+</resources>

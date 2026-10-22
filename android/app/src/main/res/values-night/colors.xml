@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- アプリの背景色（src/style.css の変数 bg、ダーク） -->
+    <color name="tk_background">#11141D</color>
+</resources>

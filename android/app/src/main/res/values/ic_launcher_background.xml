@@ -1,4 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="ic_launcher_background">#FFFFFF</color>
+    <!-- アダプティブアイコンの背景（public/icon-maskable-512.png の藍色） -->
+    <color name="ic_launcher_background">#3445A5</color>
 </resources>

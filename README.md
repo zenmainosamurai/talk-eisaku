@@ -66,6 +66,8 @@ npm run android
 
 Android Studio が開くので、実機かエミュレーターで実行します。初めて開いたときに Gradle が使う Java（Gradle JVM）を聞かれたら、JDK 21 を選びます。
 
+アプリのアイコンと起動画面のアイコンは、`public/icon-512.png` と `public/icon-maskable-512.png` から作っています。アイコンを変えたら `python3 scripts/make_android_icons.py`（Pillow が必要）で作り直します。
+
 ### iPhone（Mac が必要）
 
 ```bash

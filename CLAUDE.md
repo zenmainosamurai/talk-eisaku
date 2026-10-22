@@ -19,6 +19,7 @@
 | `src/native.js` | 音声入力・読み上げ・ファイル保存。スマホ版は Capacitor プラグイン、Web版はブラウザの機能 |
 | `src/store.js` | 端末内の保存（IndexedDB と localStorage） |
 | `android/` | Android アプリのプロジェクト（Capacitor が作成）。Web版の変更は `npm run android` で反映する |
+| `scripts/make_android_icons.py` | `public/` のアイコンから Android のアイコンと起動画面のアイコンを作る（Python と Pillow が必要） |
 | `supabase/migrations/` | データベース（vault_keys、vault_items、subscriptions、usage_daily） |
 | `supabase/functions/coach/` | AIコーチの Edge Function。指示文は `prompts.ts` |
 | `test/` | Supabase と Capacitor を偽物に置き換えた、ネット不要のテスト用ページ |
