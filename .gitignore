@@ -1,0 +1,21 @@
+# 依存パッケージとビルド結果（npm install / npm run build で作り直せる）
+node_modules/
+dist/
+
+# Supabase の接続先などを書く環境ファイル。見本の .env.example だけをリポジトリに入れる
+.env
+.env.*
+!.env.example
+
+# Supabase CLI が link などで作る作業用ファイル
+supabase/.temp/
+supabase/.branches/
+
+# ログ
+npm-debug.log*
+*.log
+
+# OS が作るファイル
+.DS_Store
+Thumbs.db
+desktop.ini

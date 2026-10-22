@@ -83,7 +83,7 @@
 - AIに初めて送る前の同意画面
 - 画面上の「コーチ」を「AIコーチ」と表記すること、AIの回答は誤ることがあるという注意書き
 - 免責事項の文案の更新。学習記録を暗号化してサーバーに保存するようになったこと、問題にしないと判定された発言も判定のために送ることを反映する。
-- `npm install` とビルドの確認。`package.json` のバージョンの組み合わせは、まだ実際に入れて確かめていない。
+- Android Studio・Xcode でのビルドの確認。`npm install` と `npm run build`（Web版）が通ることは確かめ、版の組み合わせは `package-lock.json` で固定した（2026年10月22日、Node 22）。
 - 実機での音声プラグイン（音声入力・読み上げ）の確認
 - `capacitor.config.json` の `appId`（`jp.talkeisaku.app` は仮）
 
