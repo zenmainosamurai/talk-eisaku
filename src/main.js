@@ -20,6 +20,9 @@ function relDays(n) { if (n <= 0) return "今日"; if (n === 1) return "明日";
 function whenText(t) { return relDays(Math.round((startOfDay(t) - startOfDay(Date.now())) / DAY)); }
 
 const ICON = {
+  back: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg>',
+  close: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>',
+  gear: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>',
   mic: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0"/><path d="M12 18v3"/></svg>',
   stop: '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="7" y="7" width="10" height="10" rx="2"/></svg>',
   speak: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9v6h4l5 4V5L8 9H4z"/><path d="M16.5 8.5a5 5 0 0 1 0 7"/><path d="M19 6a8.5 8.5 0 0 1 0 12"/></svg>',
@@ -43,6 +46,8 @@ function h(tag, props, ...kids) {
   }
   return el;
 }
+// 上部の操作ボタン（戻る・閉じる・設定）。アイコンだけなので、読み上げ用に名前を付ける
+const navBtn = (icon, label, onclick, extra) => h("button", { class: "icon-nav", type: "button", "aria-label": label, title: label, html: ICON[icon], onclick, ...(extra || {}) });
 let toastTimer = null;
 function toast(msg, ms = 3800) {
   document.querySelector(".toast")?.remove();
@@ -703,7 +708,7 @@ function handleBack() {
 /* --- はじめての読み込み / トーク追加 --- */
 function viewSetup() {
   const st = S.setup;
-  const back = (S.pool || allCards().length) ? h("button", { class: "link", type: "button", onclick: () => { S.setup = null; go("home"); } }, "戻る") : null;
+  const back = (S.pool || allCards().length) ? navBtn("back", "戻る", () => { S.setup = null; go("home"); }) : null;
   const fileBtn = label => h("label", { class: "btn primary block file-btn" }, label,
     h("input", { type: "file", onchange: e => onFile(e.target.files && e.target.files[0]) }));
   if (!st) {
@@ -729,9 +734,9 @@ function viewSetup() {
   const already = S.pool ? items.filter(it => S.poolIndex.has(it.id)).length : 0;
   const examples = items.filter(it => len(it.ja) >= 8 && len(it.ja) <= 40).slice(0, 400).sort(() => Math.random() - .5).slice(0, 3);
   return h("div", { class: "view" },
-    h("div", { class: "bar" }, h("button", { class: "link", style: "padding-left:0", type: "button", onclick: () => { S.setup = null; render(); } }, "選び直す")),
+    h("div", { class: "bar" }, navBtn("back", "選び直す", () => { S.setup = null; render(); })),
     h("div", { class: "intro" },
-      h("p", { class: "title", style: "font-size:1.5rem" }, (st.parsed.partner ? st.parsed.partner + " とのトーク" : st.name)),
+      h("p", { class: "title", style: "font-size:1.375rem" }, (st.parsed.partner ? st.parsed.partner + " とのトーク" : st.name)),
       h("p", null, `${st.parsed.msgs.length.toLocaleString()}件のメッセージを読み込みました。`)),
     h("section", null,
       h("label", { class: "field", for: "me" }, "あなたの名前"),
@@ -783,14 +788,15 @@ function viewHome() {
   const nRev = plan.reviews.length, nNew = plan.fresh.length, total = nRev + nNew;
   const unstudied = S.pool ? S.pool.items.filter(it => !S.cards[it.id] && !isSkipped(it.id)).length : 0;
 
-  const today = total
-    ? h("div", { class: "todayrow" },
-        h("div", { class: "info" }, h("span", { class: "lbl" }, "今日の問題"),
-          h("span", { class: "num" }, h("b", null, total), "問", h("small", null, "（" + [nRev ? `復習${nRev}` : "", nNew ? `新しい表現${nNew}` : ""].filter(Boolean).join("・") + "）"))),
-        h("button", { class: "btn primary", type: "button", disabled: !canStudy(), onclick: () => requestStart(S.plan) }, "はじめる"))
-    : h("div", { class: "todayrow" },
-        h("div", { class: "info" }, h("span", { class: "lbl" }, "今日の問題"), h("span", { class: "num" }, "すべて終わりました")),
-        h("button", { class: "btn ghost", type: "button", disabled: !canStudy() || !unstudied, onclick: () => requestStart(makePlan(5)) }, "あと5問"));
+  const today = h("div", { class: "today" },
+    h("span", { class: "lbl" }, "今日の問題"),
+    total
+      ? h("div", { class: "num" }, h("b", null, total), "問", h("small", null, "（" + [nRev ? `復習${nRev}` : "", nNew ? `新しい表現${nNew}` : ""].filter(Boolean).join("・") + "）"))
+      : h("div", { class: "num done" }, "すべて終わりました"));
+  // 片手で押しやすいよう、画面の下に固定する
+  const startBar = h("div", { class: "composer" }, total
+    ? h("button", { class: "btn primary block", type: "button", disabled: !canStudy(), onclick: () => requestStart(S.plan) }, "はじめる")
+    : h("button", { class: "btn ghost block", type: "button", disabled: !canStudy() || !unstudied, onclick: () => requestStart(makePlan(5)) }, "あと5問"));
 
   const banners = [];
   if (Cloud.status === "unconfigured") banners.push(h("p", { class: "banner" }, "サーバーが未設定です。開発用の .env にSupabaseの接続先を書いてください。"));
@@ -803,13 +809,12 @@ function viewHome() {
   else if (needsReimport() && S.settings.sendContext) banners.push(h("p", { class: "banner" }, "前後の文脈を踏まえて訳すには、トーク履歴をもう一度読み込んでください。",
     h("br"), h("button", { class: "link", style: "padding-left:0", type: "button", onclick: () => go("setup") }, "トーク履歴を読み込み直す")));
 
-  const studied = allCards().filter(c => c.last).length;
   return h("div", { class: "view" },
     h("div", { class: "bar" }, h("h1", null, "トーク英作"),
       h("button", { class: "link", type: "button", onclick: () => go("weak") }, "苦手"),
-      h("button", { class: "link", type: "button", onclick: () => go("settings") }, "設定")),
+      navBtn("gear", "設定", () => go("settings"))),
     today, banners, calendar(),
-    h("p", { class: "foot" }, studied ? `${studied.toLocaleString()}件の表現を学習中。` : "", S.pool ? `まだ出ていない問題が${unstudied.toLocaleString()}問あります。` : ""));
+    h("div", { class: "fill" }), startBar);
 }
 
 /* --- カレンダー（月・週・日） --- */
@@ -1021,7 +1026,7 @@ function viewQuiz() {
   const kindLabel = { new: "新しい表現", review: "復習", probe: "確認", again: "もう一度" }[ss.kind];
   const header = h("div", null,
     h("div", { class: "bar" },
-      h("button", { class: "link", style: "padding-left:0", type: "button", onclick: quit }, "終了"),
+      navBtn("close", "終了", quit),
       h("div", { class: "grow" }),
       h("span", { class: "kind" }, kindLabel),
       h("span", { class: "count" }, `${Math.min(doneCount, ss.total)} / ${ss.total}`)),
@@ -1033,8 +1038,7 @@ function viewQuiz() {
   const thread = h("div", { class: "thread" },
     base.d ? h("div", { class: "date-chip" }, fmtDate(base.d)) : null,
     ctxRows,
-    h("div", { class: "row me" }, h("div", { class: "bubble mine" }, base.ja),
-      ss.phase === "ask" || ss.kind === "new" ? h("div", { class: "under" }, "あなたが送ったメッセージ") : null));
+    h("div", { class: "row me" }, h("div", { class: "bubble mine" }, base.ja)));
   if (ss.phase !== "ask" && ss.kind !== "new") {
     if (ss.giveUp) thread.append(h("div", { class: "row me" }, h("div", { class: "under" }, "答えを見ました")));
     else thread.append(h("div", { class: "row me" }, h("div", { class: "bubble en", lang: "en" }, ss.shown)));
@@ -1100,9 +1104,8 @@ function resultBubble(r) {
 function lessonBubble(c) {
   return h("div", { class: "row them" }, h("div", { class: "who" }, "AIコーチ"),
     h("div", { class: "coach", "aria-live": "polite" },
-      h("div", { class: "lbl" }, "英語ではこう送る"),
       h("div", { class: "en-line" }, h("div", { class: "txt model", lang: "en" }, smart(c.en)), speakBtn(c.en)),
-      c.tip ? h("p", { style: "margin-top:10px" }, c.tip) : null,
+      c.tip ? h("p", { class: "tip" }, c.tip) : null,
       c.alts && c.alts.length ? h("div", { class: "sec" }, h("div", { class: "lbl" }, "ほかの言い方"),
         c.alts.map(a => h("div", { class: "en-line alt" }, h("div", { class: "txt", lang: "en" }, smart(a)), speakBtn(a)))) : null,
       c.ph ? h("div", { class: "sec" }, h("div", { class: "lbl" }, "覚えたい表現"),
@@ -1113,7 +1116,7 @@ function learnComposer(ss) {
   const ready = ss.phase === "learn";
   const when = whenText(Date.now() + S.mem.s0 * DAY);
   return h("div", { class: "composer" },
-    h("p", { class: "next-due", style: "margin-top:0" }, `声に出して言えるようになったら「覚えた」へ。${when === "今日" ? "今日のうちに" : when + "、"}英語で答える問題として出ます。`),
+    h("p", { class: "next-due", style: "margin-top:0" }, `${when === "今日" ? "今日のうちに" : when + "、"}英語で答える問題として出ます。`),
     h("div", { class: "btn-row" }, h("button", { class: "btn primary", type: "button", disabled: !ready, onclick: () => { learned(); nextQuestion(); } }, ss.phase === "learn-loading" ? "お手本を用意しています…" : "覚えた")));
 }
 function resultComposer(r) {
@@ -1159,7 +1162,7 @@ function viewDone() {
 function viewWeak() {
   const list = allCards().filter(c => c.lapses > 0 && c.en && c.last).sort((a, b) => (b.lapses - a.lapses) || (b.last - a.last));
   return h("div", { class: "view" },
-    h("div", { class: "bar" }, h("button", { class: "link", style: "padding-left:0", type: "button", onclick: () => go("home") }, "戻る"), h("h1", { style: "font-size:1.0625rem" }, "苦手な表現")),
+    h("div", { class: "bar" }, navBtn("back", "戻る", () => go("home")), h("h1", { style: "font-size:1.125rem" }, "苦手な表現")),
     list.length ? h("div", null, h("p", { class: "note" }, `${list.length}件。まちがえた回数が多い順です。`), list.map(cardItem))
       : h("p", { class: "empty" }, "まだ苦手な表現はありません。問題に答えると、まちがえた表現がここにたまります。"));
 }
@@ -1167,7 +1170,7 @@ function viewWeak() {
 /* --- ログイン（メールに届く6桁のコード） --- */
 const LOGIN = { email: "", sent: false, busy: false };
 function viewLogin() {
-  const back = h("button", { class: "link", style: "padding-left:0", type: "button", onclick: () => go("home") }, "戻る");
+  const back = navBtn("back", "戻る", () => go("home"));
   const emailIn = h("input", { class: "text-in", id: "email", type: "email", inputmode: "email", autocomplete: "email", autocapitalize: "off", placeholder: "you@example.com", value: LOGIN.email });
   const codeIn = h("input", { class: "text-in", id: "code", type: "text", inputmode: "numeric", autocomplete: "one-time-code", maxlength: "10", placeholder: "123456" });
   const send = h("button", { class: "btn primary block", type: "button", disabled: LOGIN.busy, onclick: async () => {
@@ -1189,7 +1192,7 @@ function viewLogin() {
   return h("div", { class: "view" },
     h("div", { class: "bar" }, back),
     h("div", { class: "intro" },
-      h("p", { class: "title", style: "font-size:1.5rem" }, "ログイン"),
+      h("p", { class: "title", style: "font-size:1.375rem" }, "ログイン"),
       h("p", null, "お手本と採点を使うため、またほかの端末と学習記録を同期するために、ログインします。")),
     h("section", { style: "border-top:0" },
       h("label", { class: "field", for: "email" }, "メールアドレス"), emailIn,
@@ -1217,9 +1220,9 @@ function viewConsent() {
   const decline = () => { back(); toast("同意しない場合、お手本と採点は使えません。"); };
   const li = t => h("li", null, t);
   return h("div", { class: "view" },
-    h("div", { class: "bar" }, h("button", { class: "link", style: "padding-left:0", type: "button", onclick: back }, "戻る")),
+    h("div", { class: "bar" }, navBtn("back", "戻る", back)),
     h("div", { class: "intro" },
-      h("p", { class: "title", style: "font-size:1.5rem" }, "AIコーチを使う前に"),
+      h("p", { class: "title", style: "font-size:1.375rem" }, "AIコーチを使う前に"),
       h("p", null, "お手本づくりと採点には、Anthropic社のAI「Claude」を使います。AIコーチを使うと、次の内容が運営者のサーバーを経由してAnthropic社に送られます。")),
     h("section", { style: "border-top:0" },
       h("ul", { class: "consent-list" },
@@ -1254,7 +1257,7 @@ async function wipeThisDevice() {
 }
 const DELETE = { understood: false, busy: false };
 function viewDeleteAccount() {
-  const back = h("button", { class: "link", style: "padding-left:0", type: "button", disabled: DELETE.busy, onclick: () => go("settings") }, "戻る");
+  const back = navBtn("back", "戻る", () => go("settings"), { disabled: DELETE.busy });
   const li = t => h("li", null, t);
   const check = h("input", { type: "checkbox", id: "understood", checked: DELETE.understood, disabled: DELETE.busy, onchange: e => { DELETE.understood = e.target.checked; del.disabled = !DELETE.understood; } });
   const del = h("button", { class: "btn primary danger block", type: "button", disabled: !DELETE.understood || DELETE.busy, onclick: async () => {
@@ -1276,7 +1279,7 @@ function viewDeleteAccount() {
   return h("div", { class: "view" },
     h("div", { class: "bar" }, back),
     h("div", { class: "intro" },
-      h("p", { class: "title", style: "font-size:1.5rem" }, "アカウントを削除する"),
+      h("p", { class: "title", style: "font-size:1.375rem" }, "アカウントを削除する"),
       h("p", null, "アカウントを削除すると、次のものがすべて消えます。元に戻すことはできません。")),
     h("section", { style: "border-top:0" },
       h("ul", { class: "consent-list" },
@@ -1306,7 +1309,7 @@ function viewVaultSetup() {
   } }, "保存したので次へ");
   return h("div", { class: "view" },
     h("div", { class: "intro" },
-      h("p", { class: "title", style: "font-size:1.5rem" }, "復元キーを保存してください"),
+      h("p", { class: "title", style: "font-size:1.375rem" }, "復元キーを保存してください"),
       h("p", null, "学習記録は、この端末で暗号化してから保存します。機種変更のときや別の端末で使うときは、この復元キーで記録を戻します。")),
     h("section", { style: "border-top:0" },
       h("div", { class: "rkey", "aria-label": "復元キー" }, VAULT.key ? VAULT.key.replace(/^((?:[A-Z0-9]{4}-){2}[A-Z0-9]{4})-/, "$1-\n") : "作成しています…"),
@@ -1335,7 +1338,7 @@ function viewVaultUnlock() {
   } }, "復元キーをなくした");
   return h("div", { class: "view" },
     h("div", { class: "intro" },
-      h("p", { class: "title", style: "font-size:1.5rem" }, "復元キーを入力してください"),
+      h("p", { class: "title", style: "font-size:1.375rem" }, "復元キーを入力してください"),
       h("p", null, `${Cloud.email()} の学習記録を、この端末に戻します。最初のログインのときに保存した24文字の復元キーを入力してください。`)),
     h("section", { style: "border-top:0" },
       h("label", { class: "field", for: "rk" }, "復元キー"), keyIn,
@@ -1391,7 +1394,7 @@ function viewSettings() {
     : [note(syncLine(), true), Cloud.configured() ? h("div", { class: "btn-row" }, h("button", { class: "btn primary", type: "button", onclick: () => go("login") }, "ログイン")) : null];
 
   return h("div", { class: "view" },
-    h("div", { class: "bar" }, h("button", { class: "link", style: "padding-left:0", type: "button", onclick: () => go("home") }, "戻る"), h("h1", { style: "font-size:1.0625rem" }, "設定")),
+    h("div", { class: "bar" }, navBtn("back", "戻る", () => go("home")), h("h1", { style: "font-size:1.125rem" }, "設定")),
     h("section", { style: "border-top:0;padding-top:4px" }, h("h2", null, "アカウント"), account),
     h("section", null, h("h2", null, "翻訳と採点"),
       h("div", { class: "row-set" }, h("span", null, "前後のやり取りも踏まえて訳す"), sw(st.sendContext, "前後のやり取りも踏まえて訳す", () => { st.sendContext = !st.sendContext; persistSettings(); })),
