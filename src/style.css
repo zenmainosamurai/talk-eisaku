@@ -70,6 +70,9 @@ a { color: var(--me); }
 .coach p { margin: 0; }
 .coach .sec { margin-top: 14px; }
 .coach .lbl { font-size: .8125rem; color: var(--muted); margin-bottom: 2px; }
+.ai-note { margin: 4px 0 0 6px; font-size: .75rem; color: var(--muted); }
+.consent-list { margin: 0; padding-left: 1.25em; }
+.consent-list li { margin: 6px 0; }
 .en-line { display: flex; align-items: flex-start; gap: 10px; }
 .en-line .txt { flex: 1; font-family: var(--serif); }
 .model { font-size: 1.4375rem; line-height: 1.35; font-weight: 500; }

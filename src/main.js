@@ -54,7 +54,7 @@ function toast(msg, ms = 3800) {
 
 /* ============ 保存（この端末） ============ */
 // トーク履歴は端末の外に出さない。学習記録と回答履歴は、暗号化して Cloud が同期する
-const K = { settings: "tk.settings.v1", mem: "tk.memory.v1", metaAt: "tk.metaAt.v1", wipedAt: "tk.wipedAt.v1", oldPool: "tk.pool.v1", oldCards: "tk.cards.v1" };
+const K = { settings: "tk.settings.v1", mem: "tk.memory.v1", metaAt: "tk.metaAt.v1", wipedAt: "tk.wipedAt.v1", aiConsent: "tk.aiConsent.v1", oldPool: "tk.pool.v1", oldCards: "tk.cards.v1" };
 const pending = {};
 function saveLater(key, ms = 300) {
   clearTimeout(pending[key]);
@@ -99,6 +99,8 @@ const S = {
   mem: { m: 1, s0: 1, n: 0, nAt: 0, fitted: false, at: 0 },  // あなた向けの記憶モデル
   settings: { newPerDay: 10, rate: 0.95, autoSpeak: true, sendContext: true, level: "intermediate" },
   metaAt: 0, wipedAt: 0, vaultLater: false,
+  aiConsent: null,       // AIへの送信の同意 { v, at }。この端末にだけ保存し、サーバーには送らない
+  pendingPlan: null, consentFrom: null,
   ready: false, plan: null, session: null, setup: null, micBlocked: false
 };
 const allCards = () => Object.values(S.cards);
@@ -426,6 +428,20 @@ function speakable(s) {
 }
 
 /* ============ AIコーチ（Supabase Edge Function 経由） ============ */
+// AIに送る前に、同意画面で同意を得る。同意はこの端末にだけ保存する
+// 同意画面の文案を大きく変えたら CONSENT_VERSION を上げて、同意を取り直す
+const CONSENT_VERSION = 1;
+const AI_NOTE = "AIの回答は誤ることがあります。";
+const hasConsent = () => !!(S.aiConsent && S.aiConsent.v >= CONSENT_VERSION);
+function setConsent(on) {
+  S.aiConsent = on ? { v: CONSENT_VERSION, at: Date.now() } : null;
+  if (on) LS.set(K.aiConsent, S.aiConsent); else LS.del(K.aiConsent);
+}
+// 「はじめる」：同意がまだなら、先に同意画面を出す
+function requestStart(plan) {
+  if (hasConsent()) { startSession(plan); return; }
+  S.pendingPlan = plan; S.consentFrom = "start"; go("consent");
+}
 // 指示文（プロンプト）はサーバー側の supabase/functions/coach/prompts.ts にある
 // 端末から送るのは、問題文・回答・前後のやり取り（話し手は Me / Friend に置き換え、名前は送らない）だけ
 function contextPayload(item) {
@@ -442,6 +458,7 @@ function contextPayload(item) {
   return { before: cx.before.map(line), after: cx.after.map(line) };
 }
 async function grade(item, answer, ref) {
+  if (!hasConsent()) throw { code: "no_consent" };
   const r = await Cloud.coach({ kind: "grade", ja: item.ja, answer, ref: ref || "", level: levelKey(), context: contextPayload(item) });
   if (!r || typeof r.model !== "string" || !r.model.trim()) throw { code: "invalid_json" };
   const str = v => (typeof v === "string" ? v.trim() : "");
@@ -457,16 +474,18 @@ async function grade(item, answer, ref) {
   };
 }
 async function teach(item) {
+  if (!hasConsent()) throw { code: "no_consent" };
   const r = await Cloud.coach({ kind: "teach", ja: item.ja, level: levelKey(), context: contextPayload(item) });
   const str = v => (typeof v === "string" ? v.trim() : "");
   if (r && (r.worth === false || r.worth === "false")) return { skip: true, reason: str(r.skip_reason) };
   if (!r || typeof r.model !== "string" || !r.model.trim()) throw { code: "invalid_json" };
   return { model: speakable(r.model.trim()), alts: Array.isArray(r.alts) ? r.alts.map(str).map(speakable).filter(Boolean).slice(0, 2) : [], point: str(r.point), phrase: speakable(str(r.phrase)), phrase_ja: str(r.phrase_ja) };
 }
-const PERMANENT = new Set(["unconfigured", "not_signed_in", "no_subscription"]);
+const PERMANENT = new Set(["unconfigured", "not_signed_in", "no_subscription", "no_consent"]);
 function errorCopy(code) {
   if (code === "unconfigured") return "サーバーの設定がまだのため、お手本と採点が使えません。";
   if (code === "not_signed_in") return "お手本と採点を使うには、ログインしてください。";
+  if (code === "no_consent") return "お手本と採点を使うには、AIへの送信に同意してください。";
   if (code === "no_subscription") return "お手本と採点は、サブスク会員向けの機能です。";
   if (code === "daily_limit") return "今日の利用上限に達しました。明日また使えます。";
   if (code === "rate_limited") return "短時間に使いすぎたため、少し待ってから、もう一度試してください。";
@@ -629,7 +648,7 @@ function render() {
     else if (Cloud.status === "needsKey" && !S.vaultLater) v = "vaultUnlock";
   }
   const node = v === "setup" ? viewSetup() : v === "login" ? viewLogin() : v === "vaultSetup" ? viewVaultSetup() : v === "vaultUnlock" ? viewVaultUnlock() : v === "quiz" ? viewQuiz() : v === "done" ? viewDone()
-    : v === "weak" ? viewWeak() : v === "settings" ? viewSettings() : viewHome();
+    : v === "weak" ? viewWeak() : v === "settings" ? viewSettings() : v === "consent" ? viewConsent() : viewHome();
   app.replaceChildren(node);
 }
 function go(view) { stopListening(); S.view = view; if (view === "home") S.plan = null; render(); window.scrollTo(0, 0); }
@@ -703,10 +722,10 @@ function viewHome() {
     ? h("div", { class: "todayrow" },
         h("div", { class: "info" }, h("span", { class: "lbl" }, "今日の問題"),
           h("span", { class: "num" }, h("b", null, total), "問", h("small", null, "（" + [nRev ? `復習${nRev}` : "", nNew ? `新しい表現${nNew}` : ""].filter(Boolean).join("・") + "）"))),
-        h("button", { class: "btn primary", type: "button", disabled: !canStudy(), onclick: () => startSession(S.plan) }, "はじめる"))
+        h("button", { class: "btn primary", type: "button", disabled: !canStudy(), onclick: () => requestStart(S.plan) }, "はじめる"))
     : h("div", { class: "todayrow" },
         h("div", { class: "info" }, h("span", { class: "lbl" }, "今日の問題"), h("span", { class: "num" }, "すべて終わりました")),
-        h("button", { class: "btn ghost", type: "button", disabled: !canStudy() || !unstudied, onclick: () => startSession(makePlan(5)) }, "あと5問"));
+        h("button", { class: "btn ghost", type: "button", disabled: !canStudy() || !unstudied, onclick: () => requestStart(makePlan(5)) }, "あと5問"));
 
   const banners = [];
   if (Cloud.status === "unconfigured") banners.push(h("p", { class: "banner" }, "サーバーが未設定です。開発用の .env にSupabaseの接続先を書いてください。"));
@@ -955,7 +974,7 @@ function viewQuiz() {
     if (ss.giveUp) thread.append(h("div", { class: "row me" }, h("div", { class: "under" }, "答えを見ました")));
     else thread.append(h("div", { class: "row me" }, h("div", { class: "bubble en", lang: "en" }, ss.shown)));
   }
-  if (ss.phase === "grading" || ss.phase === "learn-loading") thread.append(h("div", { class: "row them" }, h("div", { class: "who" }, "コーチ"),
+  if (ss.phase === "grading" || ss.phase === "learn-loading") thread.append(h("div", { class: "row them" }, h("div", { class: "who" }, "AIコーチ"),
     h("div", { class: "bubble them", "aria-live": "polite" }, h("span", { class: "typing", "aria-label": ss.phase === "grading" ? "採点中" : "お手本を用意中" }, h("i"), h("i"), h("i")))));
   if (ss.phase === "learn") thread.append(lessonBubble(ss.lesson));
   if (ss.phase === "error") thread.append(errorBubble(ss.error));
@@ -982,18 +1001,21 @@ function askComposer(ss) {
 }
 function errorBubble(code) {
   const ss = S.session;
-  return h("div", { class: "row them" }, h("div", { class: "who" }, "コーチ"),
+  return h("div", { class: "row them" }, h("div", { class: "who" }, "AIコーチ"),
     h("div", { class: "coach", role: "alert" },
       h("p", null, errorCopy(code)),
       h("div", { class: "btn-row" },
-        PERMANENT.has(code) ? h("button", { class: "btn ghost", type: "button", onclick: () => { if (S.session) quit(); go(code === "not_signed_in" ? "login" : "settings"); } }, code === "not_signed_in" ? "ログインする" : "設定を開く") : null,
+        PERMANENT.has(code) ? h("button", { class: "btn ghost", type: "button", onclick: () => {
+          if (S.session) quit();
+          if (code === "no_consent") { S.consentFrom = "home"; go("consent"); } else go(code === "not_signed_in" ? "login" : "settings");
+        } }, code === "not_signed_in" ? "ログインする" : code === "no_consent" ? "送る内容を見る" : "設定を開く") : null,
         !PERMANENT.has(code) && code !== "refused" ? h("button", { class: "btn ghost", type: "button", onclick: () => (ss.kind === "new" ? loadLesson() : check(ss.giveUp)) }, "もう一度") : null,
         h("button", { class: "btn ghost", type: "button", onclick: nextQuestion }, "この問題をとばす"))));
 }
 const VERDICT = { correct: "○ 正解", close: "△ おしい", wrong: "× もう一歩" };
 function resultBubble(r) {
   const c = r.card, ss = S.session;
-  return h("div", { class: "row them" }, h("div", { class: "who" }, "コーチ"),
+  return h("div", { class: "row them" }, h("div", { class: "who" }, "AIコーチ"),
     h("div", { class: "coach", "aria-live": "polite" },
       ss.giveUp ? null : h("span", { class: "verdict " + r.auto }, VERDICT[r.auto]),
       (r.res.feedback || (ss.giveUp && c.tip)) ? h("p", { style: ss.giveUp ? "" : "margin-top:10px" }, r.res.feedback || c.tip) : null,
@@ -1007,10 +1029,11 @@ function resultBubble(r) {
       c.alts && c.alts.length ? h("div", { class: "sec" }, h("div", { class: "lbl" }, "ほかの言い方"),
         c.alts.map(a => h("div", { class: "en-line alt" }, h("div", { class: "txt", lang: "en" }, smart(a)), speakBtn(a)))) : null,
       c.ph ? h("div", { class: "sec" }, h("div", { class: "lbl" }, "覚えたい表現"),
-        h("p", null, h("span", { class: "phrase", lang: "en" }, smart(c.ph)), c.phj ? `　${c.phj}` : "")) : null));
+        h("p", null, h("span", { class: "phrase", lang: "en" }, smart(c.ph)), c.phj ? `　${c.phj}` : "")) : null),
+    h("p", { class: "ai-note" }, AI_NOTE));
 }
 function lessonBubble(c) {
-  return h("div", { class: "row them" }, h("div", { class: "who" }, "コーチ"),
+  return h("div", { class: "row them" }, h("div", { class: "who" }, "AIコーチ"),
     h("div", { class: "coach", "aria-live": "polite" },
       h("div", { class: "lbl" }, "英語ではこう送る"),
       h("div", { class: "en-line" }, h("div", { class: "txt model", lang: "en" }, smart(c.en)), speakBtn(c.en)),
@@ -1018,7 +1041,8 @@ function lessonBubble(c) {
       c.alts && c.alts.length ? h("div", { class: "sec" }, h("div", { class: "lbl" }, "ほかの言い方"),
         c.alts.map(a => h("div", { class: "en-line alt" }, h("div", { class: "txt", lang: "en" }, smart(a)), speakBtn(a)))) : null,
       c.ph ? h("div", { class: "sec" }, h("div", { class: "lbl" }, "覚えたい表現"),
-        h("p", null, h("span", { class: "phrase", lang: "en" }, smart(c.ph)), c.phj ? `　${c.phj}` : "")) : null));
+        h("p", null, h("span", { class: "phrase", lang: "en" }, smart(c.ph)), c.phj ? `　${c.phj}` : "")) : null),
+    h("p", { class: "ai-note" }, AI_NOTE));
 }
 function learnComposer(ss) {
   const ready = ss.phase === "learn";
@@ -1111,6 +1135,45 @@ function viewLogin() {
         h("div", { style: "margin-top:12px" }, verify),
         h("div", { style: "margin-top:10px" }, h("button", { class: "link", style: "padding-left:0", type: "button", onclick: () => { LOGIN.sent = false; render(); } }, "メールアドレスを変える"))
       ] : null));
+}
+
+/* --- AIに送る前の同意 --- */
+const fmtYMD = t => { const d = new Date(t); return `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日`; };
+function viewConsent() {
+  const from = S.consentFrom, plan = S.pendingPlan;
+  const back = () => { S.pendingPlan = null; S.consentFrom = null; go(from === "settings" ? "settings" : "home"); };
+  const agree = () => {
+    setConsent(true);
+    S.pendingPlan = null; S.consentFrom = null;
+    if (from === "start" && plan) { startSession(plan); if (S.view !== "consent") return; }
+    toast("AIへの送信に同意しました。");
+    go(from === "settings" ? "settings" : "home");
+  };
+  const decline = () => { back(); toast("同意しない場合、お手本と採点は使えません。"); };
+  const li = t => h("li", null, t);
+  return h("div", { class: "view" },
+    h("div", { class: "bar" }, h("button", { class: "link", style: "padding-left:0", type: "button", onclick: back }, "戻る")),
+    h("div", { class: "intro" },
+      h("p", { class: "title", style: "font-size:1.5rem" }, "AIコーチを使う前に"),
+      h("p", null, "お手本づくりと採点には、Anthropic社のAI「Claude」を使います。AIコーチを使うと、次の内容が運営者のサーバーを経由してAnthropic社に送られます。")),
+    h("section", { style: "border-top:0" },
+      h("ul", { class: "consent-list" },
+        li("問題にするあなたの発言（問題にしないと判断された発言も、判断のために送ります）"),
+        li("あなたの英語の回答と、前に表示したお手本"),
+        li("設定した英語のレベル"),
+        li(S.settings.sendContext
+          ? "前後のやり取り（前3件・後ろ2件。相手の発言を含みます。名前は送りません。設定でオフにできます）"
+          : "前後のやり取り：今の設定では送りません（設定でオンにすると、前3件・後ろ2件を相手の発言も含めて送ります。名前は送りません）")),
+      h("p", { class: "note", style: "margin:12px 0 0" }, "運営者のサーバーには、これらを保存しません。Anthropic社での取り扱いは、同社のプライバシーポリシー（",
+        h("a", { href: "https://www.anthropic.com/legal", target: "_blank", rel: "noopener" }, "www.anthropic.com/legal"), "）に従います。"),
+      h("p", { class: "banner" }, AI_NOTE + "お手本や判定は参考としてお使いください。")),
+    h("div", { style: "padding:8px 0 28px" },
+      hasConsent()
+        ? [h("p", { class: "note", style: "margin:0 0 12px" }, `${fmtYMD(S.aiConsent.at)}に同意しています。取り消すときは、設定の「データの扱い」から取り消せます。`),
+           h("button", { class: "btn ghost block", type: "button", onclick: back }, "戻る")]
+        : h("div", { class: "btn-row", style: "margin-top:0" },
+            h("button", { class: "btn ghost", type: "button", onclick: decline }, "同意しない"),
+            h("button", { class: "btn primary", type: "button", onclick: agree }, from === "start" ? "同意してはじめる" : "同意する"))));
 }
 
 /* --- 復元キーの作成（はじめてのログイン） --- */
@@ -1252,7 +1315,16 @@ function viewSettings() {
     h("section", null, h("h2", null, "データの扱い"),
       note("トーク履歴は、この端末にだけ保存され、サーバーには保存しません。"),
       note("学習記録と回答履歴は、この端末で暗号化してからサーバーに保存します。運営者は中身を読めません。復元キーをなくすと、運営者にも記録を戻せません。"),
-      note(st.sendContext ? "お手本や採点を作るときは、問題文（あなたの発言）・あなたの回答・前後のやり取りが、運営者のサーバーを経由してAnthropicのClaude APIに送られます。運営者のサーバーには保存しません。" : "お手本や採点を作るときは、問題文（あなたの発言）とあなたの回答が、運営者のサーバーを経由してAnthropicのClaude APIに送られます。運営者のサーバーには保存しません。", true)),
+      note(`お手本や採点を作るときは、問題文（あなたの発言。問題にしないと判断された発言も含みます）・あなたの回答・前に表示したお手本・英語のレベル${st.sendContext ? "・前後のやり取り" : ""}が、運営者のサーバーを経由してAnthropic社のClaude APIに送られます。運営者のサーバーには保存しません。`),
+      note(AI_NOTE + "お手本や判定は参考としてお使いください。"),
+      hasConsent()
+        ? [note(`AIへの送信に同意しています（${fmtYMD(S.aiConsent.at)}）。`, true),
+           h("div", { class: "btn-row" },
+             h("button", { class: "btn ghost", type: "button", onclick: () => { S.consentFrom = "settings"; go("consent"); } }, "送る内容を見る"),
+             h("button", { class: "btn ghost danger", type: "button", onclick: () => { setConsent(false); toast("同意を取り消しました。AIへの送信を止めます。"); render(); } }, "同意を取り消す"))]
+        : [note("AIへの送信には、まだ同意していません。「はじめる」を押したときに確認します。", true),
+           h("div", { class: "btn-row" },
+             h("button", { class: "btn ghost", type: "button", onclick: () => { S.consentFrom = "settings"; go("consent"); } }, "送る内容を見て同意する"))]),
     h("section", null, resetBtn),
     h("div", { style: "height:24px" }));
 }
@@ -1380,6 +1452,7 @@ async function boot() {
   const st = LS.get(K.settings); if (st) { delete st.model; Object.assign(S.settings, st); }
   const mem = LS.get(K.mem); if (mem) Object.assign(S.mem, mem);
   S.metaAt = LS.get(K.metaAt) || 0; S.wipedAt = LS.get(K.wipedAt) || 0;
+  S.aiConsent = LS.get(K.aiConsent) || null;
   render();
   await Store.init();
   let [pool, cards, log] = await Promise.all([Store.get("pool"), Store.get("cards"), Store.get("log")]);
