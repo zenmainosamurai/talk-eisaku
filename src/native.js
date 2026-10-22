@@ -5,8 +5,20 @@ import { SpeechRecognition } from "@capacitor-community/speech-recognition";
 import { TextToSpeech } from "@capacitor-community/text-to-speech";
 import { Filesystem, Directory, Encoding } from "@capacitor/filesystem";
 import { Share } from "@capacitor/share";
+import { App } from "@capacitor/app";
 
 export const isNative = () => Capacitor.isNativePlatform();
+
+// ---- Android の戻るボタン ----
+// handler() が false を返したとき（ホームなど最初の画面）は、アプリを閉じずに裏に回す
+export function onBackButton(handler) {
+  if (!isNative()) return;
+  App.addListener("backButton", () => {
+    let handled = false;
+    try { handled = handler(); } catch {}
+    if (!handled) App.minimizeApp().catch(() => {});
+  });
+}
 
 // ---- 音声入力 ----
 // start() に { onText, onEnd, onError } を渡す。戻り値の stop() で止める

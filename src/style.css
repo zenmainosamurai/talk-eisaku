@@ -164,6 +164,11 @@ select, .text-in { width: 100%; min-height: 48px; padding: 0 12px; border-radius
 input[type="range"] { width: 100%; accent-color: var(--me); }
 .danger, .btn.danger { color: var(--ng); }
 .btn.primary.danger { background: var(--ng); color: var(--on-me); }
+.confirm-overlay { position: fixed; inset: 0; z-index: 30; display: grid; place-items: center; padding: 16px; background: rgba(0, 0, 0, .45); }
+.confirm-card { width: min(420px, 100%); background: var(--surface); color: var(--ink); border-radius: 20px; padding: 20px 18px 18px; box-shadow: 0 10px 40px rgba(0, 0, 0, .25); }
+.confirm-card p { margin: 0; }
+.confirm-card .confirm-title { font-weight: 700; font-size: 1.0625rem; margin-bottom: 6px; }
+.confirm-card .btn-row { margin-top: 16px; }
 
 .toast { position: fixed; left: 50%; top: calc(12px + env(safe-area-inset-top, 0px)); transform: translateX(-50%); width: min(520px, calc(100% - 32px)); background: var(--ink); color: var(--bg); padding: 12px 16px; border-radius: 14px; font-size: .9375rem; z-index: 20; box-shadow: 0 6px 24px rgba(0,0,0,.18); }
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }

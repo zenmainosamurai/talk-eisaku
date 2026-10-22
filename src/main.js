@@ -1,7 +1,7 @@
 // トーク英作：アプリ本体（Web版とスマホアプリ版で共通）
 import { LS, Store } from "./store.js";
 import { Cloud } from "./cloud.js";
-import { Voice, Speech, isNative, saveTextFile } from "./native.js";
+import { Voice, Speech, isNative, saveTextFile, onBackButton } from "./native.js";
 
 /* ============ 基本ユーティリティ ============ */
 const DAY = 86400000;
@@ -640,19 +640,65 @@ function scrollToEnd() {
 
 /* ============ 画面 ============ */
 const app = document.getElementById("app");
+// 実際に表示する画面。ログイン直後は、復元キーの作成・入力を先に済ませる
+function shownView() {
+  const v = S.view;
+  if (v !== "setup" && v !== "login" && v !== "deleteAccount") {
+    if (Cloud.status === "needsSetup") return "vaultSetup";
+    if (Cloud.status === "needsKey" && !S.vaultLater) return "vaultUnlock";
+  }
+  return v;
+}
 function render() {
   if (!S.ready) { app.replaceChildren(h("div", { class: "view" }, h("p", { class: "loading" }, "読み込んでいます…"))); return; }
-  let v = S.view;
-  // ログイン直後は、復元キーの作成・入力を先に済ませる
-  if (v !== "setup" && v !== "login" && v !== "deleteAccount") {
-    if (Cloud.status === "needsSetup") v = "vaultSetup";
-    else if (Cloud.status === "needsKey" && !S.vaultLater) v = "vaultUnlock";
-  }
+  const v = shownView();
   const node = v === "setup" ? viewSetup() : v === "login" ? viewLogin() : v === "vaultSetup" ? viewVaultSetup() : v === "vaultUnlock" ? viewVaultUnlock() : v === "quiz" ? viewQuiz() : v === "done" ? viewDone()
     : v === "weak" ? viewWeak() : v === "settings" ? viewSettings() : v === "consent" ? viewConsent() : v === "deleteAccount" ? viewDeleteAccount() : viewHome();
   app.replaceChildren(node);
 }
-function go(view) { stopListening(); S.view = view; if (view === "home") S.plan = null; render(); window.scrollTo(0, 0); }
+function go(view) { stopListening(); closeConfirm(); S.view = view; if (view === "home") S.plan = null; render(); window.scrollTo(0, 0); }
+
+/* --- 確認の小さな画面 --- */
+function closeConfirm() { document.querySelector(".confirm-overlay")?.remove(); }
+function confirmBox(message, note, okLabel, onOk) {
+  closeConfirm();
+  const box = h("div", { class: "confirm-overlay", role: "dialog", "aria-modal": "true", onclick: e => { if (e.target === box) closeConfirm(); } },
+    h("div", { class: "confirm-card" },
+      h("p", { class: "confirm-title" }, message),
+      note ? h("p", { class: "note" }, note) : null,
+      h("div", { class: "btn-row" },
+        h("button", { class: "btn ghost", type: "button", onclick: closeConfirm }, "続ける"),
+        h("button", { class: "btn primary", type: "button", onclick: () => { closeConfirm(); onOk(); } }, okLabel))));
+  document.body.append(box);
+}
+
+/* --- Android の戻るボタン --- */
+// 画面にある「戻る」と同じ動きをする。ホームなど最初の画面では false を返し、アプリを裏に回す
+function handleBack() {
+  if (!S.ready) return false;
+  if (document.querySelector(".confirm-overlay")) { closeConfirm(); return true; }
+  if (rec) { stopListening(); return true; }
+  const v = shownView();
+  if (v === "quiz") {
+    confirmBox("問題を終了しますか？", "ここまでの回答は保存されます。", "終了する", quit);
+    return true;
+  }
+  if (v === "done") { S.session = null; go("home"); return true; }
+  if (v === "settings" || v === "weak" || v === "login") { go("home"); return true; }
+  if (v === "deleteAccount") { if (!DELETE.busy) go("settings"); return true; }
+  if (v === "consent") {
+    const to = S.consentFrom === "settings" ? "settings" : "home";
+    S.pendingPlan = null; S.consentFrom = null; go(to); return true;
+  }
+  if (v === "vaultUnlock") { S.vaultLater = true; go("home"); return true; }
+  if (v === "setup") {
+    if (S.setup) { S.setup = null; render(); return true; }
+    if (S.pool || allCards().length) { go("home"); return true; }
+    return false;
+  }
+  if (v === "home" && CAL.open) { CAL.open = null; render(); return true; }
+  return false; // ホーム・はじめての画面・復元キーの作成中
+}
 
 /* --- はじめての読み込み / トーク追加 --- */
 function viewSetup() {
@@ -1531,8 +1577,9 @@ async function boot() {
   render();
   setTimeout(() => { fitModel(false); S.plan = null; if (S.view === "home") render(); }, 300);
 }
-if (typeof window !== "undefined" && window.__TK_TEST) window.__tk = { S, CAL, Cloud, render, go, replayAll, fitModel, makePlan, pickFresh, flushAll, levelOf, dueOf, rNow, DAY, startOfDay, newCard, step, indexPool };
+if (typeof window !== "undefined" && window.__TK_TEST) window.__tk = { S, CAL, Cloud, render, go, handleBack, replayAll, fitModel, makePlan, pickFresh, flushAll, levelOf, dueOf, rNow, DAY, startOfDay, newCard, step, indexPool };
 TTS.init();
+onBackButton(handleBack);
 boot();
 if (!isNative() && "serviceWorker" in navigator && /^https?:$/.test(location.protocol) && !/localhost|127\.0\.0\.1/.test(location.hostname)) navigator.serviceWorker.register("sw.js").catch(() => {});
 if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
