@@ -1,10 +1,8 @@
-// スマホアプリ（Capacitor）ではネイティブの音声認識・読み上げ・共有を使い、Webではブラウザの機能を使う
+// スマホアプリ（Capacitor）ではネイティブの音声認識・読み上げ・戻るボタン・共有の受け取りを使い、Webではブラウザの機能を使う
 // AndroidのWebViewはブラウザの音声認識・読み上げに対応していないため、アプリではプラグインが必要
 import { Capacitor, registerPlugin } from "@capacitor/core";
 import { SpeechRecognition } from "@capacitor-community/speech-recognition";
 import { TextToSpeech } from "@capacitor-community/text-to-speech";
-import { Filesystem, Directory, Encoding } from "@capacitor/filesystem";
-import { Share } from "@capacitor/share";
 import { App } from "@capacitor/app";
 
 export const isNative = () => Capacitor.isNativePlatform();
@@ -109,17 +107,3 @@ export const Speech = {
     });
   }
 };
-
-// ---- ファイルの書き出し（バックアップ） ----
-export async function saveTextFile(name, text) {
-  if (isNative()) {
-    const r = await Filesystem.writeFile({ path: name, data: text, directory: Directory.Cache, encoding: Encoding.UTF8 });
-    await Share.share({ title: name, url: r.uri, dialogTitle: "バックアップを保存" });
-    return;
-  }
-  const url = URL.createObjectURL(new Blob([text], { type: "application/json" }));
-  const a = document.createElement("a");
-  a.href = url; a.download = name;
-  document.body.append(a); a.click(); a.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 5000);
-}

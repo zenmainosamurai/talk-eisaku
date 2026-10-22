@@ -1,7 +1,7 @@
 // トーク英作：アプリ本体（Web版とスマホアプリ版で共通）
 import { LS, Store } from "./store.js";
 import { Cloud } from "./cloud.js";
-import { Voice, Speech, isNative, saveTextFile, onBackButton, onSharedText, shareTargetSupported } from "./native.js";
+import { Voice, Speech, isNative, onBackButton, onSharedText, shareTargetSupported } from "./native.js";
 
 /* ============ 基本ユーティリティ ============ */
 const DAY = 86400000;
@@ -660,7 +660,7 @@ function go(view) { stopListening(); closeConfirm(); S.view = view; if (view ===
 
 /* --- 確認の小さな画面 --- */
 function closeConfirm() { document.querySelector(".confirm-overlay")?.remove(); }
-function confirmBox(message, note, okLabel, onOk) {
+function confirmBox(message, note, okLabel, onOk, danger) {
   closeConfirm();
   const box = h("div", { class: "confirm-overlay", role: "dialog", "aria-modal": "true", onclick: e => { if (e.target === box) closeConfirm(); } },
     h("div", { class: "confirm-card" },
@@ -668,7 +668,7 @@ function confirmBox(message, note, okLabel, onOk) {
       note ? h("p", { class: "note" }, note) : null,
       h("div", { class: "btn-row" },
         h("button", { class: "btn ghost", type: "button", onclick: closeConfirm }, "続ける"),
-        h("button", { class: "btn primary", type: "button", onclick: () => { closeConfirm(); onOk(); } }, okLabel))));
+        h("button", { class: danger ? "btn primary danger" : "btn primary", type: "button", onclick: () => { closeConfirm(); onOk(); } }, okLabel))));
   document.body.append(box);
 }
 
@@ -714,7 +714,7 @@ function viewSetup() {
         h("p", null, "あなたが実際にLINEで送ったメッセージが、英作文の問題になります。")),
       h("section", { style: "border-top:0" },
         h("ol", { class: "steps" },
-          h("li", null, "LINEで練習に使いたいトークを開き、右上のメニュー → 設定 → 「トーク履歴を送信」を選びます。"),
+          h("li", null, `LINEで、練習に使いたい友だちとのトーク画面を開き、${LINE_EXPORT_MENU}を選びます。`),
           h("li", null, shareTargetSupported()
             ? "送信先の一覧から「トーク英作」を選ぶと、そのまま読み込めます。一覧にないときは、端末に保存（「ファイルに保存」など。機種によって名前が違います）してから、下のボタンでそのファイルを選びます。"
             : "送信先の一覧から、この端末に保存する方法（「ファイルに保存」など。機種によって名前が違います）を選び、下のボタンでそのファイルを選びます。",
@@ -751,6 +751,7 @@ function viewSetup() {
       } }, "この内容で始める")));
 }
 const LINE_EXPORT_HELP = "https://help.line.me/line/smartphone?lang=ja&contentId=20007388";
+const LINE_EXPORT_MENU = "右上の三本線のメニュー（≡）→「設定」→「トーク履歴を送信」";
 // トーク履歴の文字列を読み取り、読み込みの確認画面を出す（ファイルを選んだときと、共有で届いたときの両方で使う）
 function loadTalkText(text, name) {
   const parsed = parseLineExport(text);
@@ -1283,9 +1284,7 @@ function viewDeleteAccount() {
         li("サーバーに保存している学習記録と回答履歴（暗号化したもの）と、復元キーで開く鍵"),
         li("この端末に保存しているトーク履歴・学習記録・設定")),
       h("p", { class: "note", style: "margin:12px 0 0" }, "ほかの端末でもこのアカウントを使っていた場合、その端末はログアウトされます。その端末に残っている記録は、その端末でアプリを削除すると消えます。"),
-      h("p", { class: "banner" }, "サブスクに登録している場合、アカウントを削除しても自動では解約されません。App Store または Google Play の定期購入の画面で解約してください。"),
-      h("p", { class: "note", style: "margin:12px 0 0" }, "記録を手元に残したい場合は、先にバックアップをファイルに保存してください。"),
-      h("button", { class: "btn ghost block", type: "button", style: "margin-top:10px", disabled: DELETE.busy, onclick: exportBackup }, "バックアップを保存する")),
+      h("p", { class: "banner" }, "サブスクに登録している場合、アカウントを削除しても自動では解約されません。App Store または Google Play の定期購入の画面で解約してください。")),
     h("section", null,
       h("label", { class: "check" }, check, h("span", null, "元に戻せないことを理解しました")),
       h("div", { style: "margin-top:14px" }, del)),
@@ -1348,19 +1347,6 @@ function viewVaultUnlock() {
 
 /* --- 設定 --- */
 let resetArmed = false;
-function memoryNotes() {
-  const m = S.mem, c = calibInfo(), eps = Math.round(exploreShare() * 100);
-  const out = [];
-  if (!m.fitted) out.push(`回答が20件たまると、あなた向けの調整を始めます（いま${m.n || 0}件）。それまでは標準的な忘れ方で計算します。`);
-  else {
-    out.push(`あなたの回答${m.n.toLocaleString()}件から調整しています。`);
-    out.push(`覚えた直後の記憶の持ち：約${m.s0 < 1 ? Math.round(m.s0 * 24) + "時間" : m.s0 + "日"}（標準は約1日）`);
-    out.push(`復習で記憶が伸びる度合い：標準の${m.m}倍`);
-  }
-  if (c.n >= 8) out.push(`「定着率が高い」と予測した問題の正解率：予測${Math.round(c.pred * 100)}%に対して実際${Math.round(c.act * 100)}%（直近${c.n}問）`);
-  out.push(`予測を確かめるために混ぜる問題：約${eps}%`);
-  return out;
-}
 function syncLine() {
   const st = Cloud.status;
   if (st === "unconfigured") return "サーバーが未設定のため、この端末だけで動いています。";
@@ -1389,8 +1375,13 @@ function viewSettings() {
   } }, "学習記録を消去する");
   const fileBtn = h("label", { class: "btn ghost block file-btn" }, "トーク履歴を追加・読み込み直す",
     h("input", { type: "file", onchange: e => onFile(e.target.files && e.target.files[0]) }));
-  const importBtn = h("label", { class: "btn ghost block file-btn", style: "margin-top:10px" }, "バックアップから復元する",
-    h("input", { type: "file", onchange: e => importBackup(e.target.files && e.target.files[0]) }));
+  const deletePoolBtn = h("button", { class: "btn ghost block danger", type: "button", style: "margin-top:10px", onclick: () =>
+    confirmBox("読み込んだトーク履歴を削除しますか？", "学習記録は残ります。もう一度使うときは、LINEから送り直してください。", "削除する", () => {
+      S.pool = null; indexPool(); savePool(); S.plan = null; toast("読み込んだトーク履歴を削除しました。学習記録は残っています。"); render();
+    }, true) }, "読み込んだトーク履歴を削除する");
+  const talkItem = s => h("div", { class: "talk-item" },
+    h("div", { class: "talk-name" }, `${s.partner} とのトーク`),
+    h("div", { class: "talk-meta" }, [`${(s.count || 0).toLocaleString()}問`, `あなたの名前：${s.me}`, s.msgs ? "" : "前後の文脈なし"].filter(Boolean).join("・")));
   const note = (text, last) => h("p", { class: "note", style: last ? "margin:0" : "margin:0 0 6px" }, text);
   const account = Cloud.signedIn()
     ? [note(Cloud.email()), note(syncLine(), true),
@@ -1407,29 +1398,32 @@ function viewSettings() {
     h("section", null, h("h2", null, "翻訳と採点"),
       h("div", { class: "row-set" }, h("span", null, "前後のやり取りも踏まえて訳す"), sw(st.sendContext, "前後のやり取りも踏まえて訳す", () => { st.sendContext = !st.sendContext; persistSettings(); })),
       h("p", { class: "note", style: "margin:8px 0 0" }, "オンにすると、対象の発言の前3件・後ろ2件（同じ日のやり取り）も、相手の発言を含めてClaudeに送ります。話し手の名前は送りません。")),
-    h("section", null, h("h2", null, "英語のレベル"),
+    h("section", null, h("h2", null, "あなたの英語レベル"),
       h("div", { class: "seg" }, Object.entries(LEVELS).map(([k, v]) => h("button", { class: "plain", type: "button", "aria-pressed": String(levelKey() === k),
         onclick: () => { st.level = k; persistSettings(); skippedNow.clear(); S.plan = null; render(); } }, v.name))),
-      h("p", { class: "note", style: "margin:8px 0 0" }, "新しい表現を出題するとき、問題にする意味があるかをClaudeがこのレベルで判定します。" + LEVELS[levelKey()].note)),
-    h("section", null, h("h2", null, "1日の新しい問題"), h("div", { class: "seg" }, [5, 10, 20, 30].map(segBtn))),
+      h("p", { class: "note", style: "margin:8px 0 0" }, "トーク履歴の中からあなたのレベルに合ったものを出題します。")),
+    h("section", null, h("h2", null, "1日の出題数"), h("div", { class: "seg" }, [5, 10, 20, 30].map(segBtn))),
     h("section", null,
       h("div", { class: "row-set" }, h("h2", { style: "margin:0" }, "読み上げの速さ"), rateLbl),
       h("input", { type: "range", min: "0.6", max: "1.2", step: "0.05", value: String(st.rate), "aria-label": "読み上げの速さ",
         oninput: e => { st.rate = +e.target.value; rateLbl.textContent = `${st.rate.toFixed(2)}倍`; }, onchange: persistSettings }),
       h("button", { class: "link", style: "padding-left:0", type: "button", onclick: () => TTS.speak("Hey, are you free this weekend?") }, "試しに聞く"),
       h("div", { class: "row-set", style: "margin-top:12px" }, h("span", null, "お手本を自動で読み上げる"), sw(st.autoSpeak, "お手本を自動で読み上げる", () => { st.autoSpeak = !st.autoSpeak; persistSettings(); }))),
-    h("section", null, h("h2", null, "あなた向けの記憶モデル"),
-      memoryNotes().map((t, i, a) => note(t, i === a.length - 1)),
-      h("p", { class: "note", style: "margin:10px 0 0" }, "カレンダーの定着度は、このモデルで計算した「1週間後にも思い出せる見込み」です。")),
     h("section", null, h("h2", null, "トーク履歴"),
-      S.pool && S.pool.sources.length ? S.pool.sources.map(s => note(`${s.partner} とのトーク（${s.me}として、${(s.count || 0).toLocaleString()}問）` + (s.msgs ? "" : "：文脈なし"))) : note("読み込まれていません。"),
-      shareTargetSupported() ? note("LINEの「トーク履歴を送信」で「トーク英作」を選んでも追加できます。") : null,
-      h("div", { style: "margin-top:10px" }, fileBtn),
-      S.pool ? h("button", { class: "link danger", style: "padding-left:0;margin-top:6px", type: "button", onclick: () => { S.pool = null; indexPool(); savePool(); S.plan = null; toast("読み込んだトーク履歴を削除しました。学習記録は残っています。"); render(); } }, "読み込んだトーク履歴を削除する") : null),
-    h("section", null, h("h2", null, "バックアップ"),
-      h("p", { class: "note", style: "margin:0 0 10px" }, "同期とは別に、学習記録・回答履歴・トーク履歴をファイルとして手元に保存できます。"),
-      h("button", { class: "btn ghost block", type: "button", onclick: exportBackup }, "バックアップを保存する"),
-      importBtn),
+      S.pool && S.pool.sources.length
+        ? h("div", { class: "talk-list" }, S.pool.sources.map(talkItem))
+        : h("p", { class: "note", style: "margin:0 0 12px" }, "読み込まれていません。"),
+      fileBtn,
+      S.pool ? deletePoolBtn : null,
+      h("div", { class: "howto" },
+        h("h3", null, "LINEからトーク履歴を追加するには"),
+        h("ol", { class: "steps" },
+          h("li", null, "LINEで、練習に使いたい友だちとのトーク画面を開きます。"),
+          h("li", null, `${LINE_EXPORT_MENU}を選びます。`),
+          h("li", null, shareTargetSupported()
+            ? "送信先の一覧から「トーク英作」を選びます。"
+            : "送信先の一覧から、この端末に保存する方法（「ファイルに保存」など）を選び、上の「トーク履歴を追加・読み込み直す」でそのファイルを選びます。")),
+        h("a", { href: LINE_EXPORT_HELP, target: "_blank", rel: "noopener" }, "くわしい手順（LINE公式ヘルプ）"))),
     h("section", null, h("h2", null, "データの扱い"),
       note("トーク履歴は、この端末にだけ保存され、サーバーには保存しません。"),
       note("学習記録と回答履歴は、この端末で暗号化してからサーバーに保存します。運営者は中身を読めません。復元キーをなくすと、運営者にも記録を戻せません。"),
@@ -1502,30 +1496,6 @@ const cloudHooks = {
 };
 
 /* ============ バックアップ ============ */
-function exportBackup() {
-  flushAll();
-  const data = { app: "talk-eisaku", v: 3, exportedAt: new Date().toISOString(), settings: S.settings, cards: S.cards, log: S.log, pool: S.pool, mem: S.mem };
-  saveTextFile(`talk-eisaku-backup-${new Date().toISOString().slice(0, 10)}.json`, JSON.stringify(data))
-    .then(() => toast("バックアップを保存しました。"), () => toast("バックアップを保存できませんでした。"));
-}
-function mergePool(p2) {
-  if (!p2 || !Array.isArray(p2.items)) return;
-  const pool = S.pool || { v: 2, sources: [], items: [] };
-  for (const s of p2.sources || []) {
-    if (!s || !s.partner) continue;
-    const i = pool.sources.findIndex(x => (s.key && x.key === s.key) || (x.partner === s.partner && x.me === s.me));
-    if (i < 0) pool.sources.push(s); else if (s.msgs && !pool.sources[i].msgs) pool.sources[i] = s;
-  }
-  const byId = new Map(pool.items.map(i => [i.id, i])), haveJa = new Set(pool.items.map(i => i.ja));
-  for (const it of p2.items) {
-    if (!it || !it.id || !it.ja) continue;
-    const old = byId.get(it.id);
-    if (old) { if (it.src && !old.src) { old.src = it.src; old.mi = it.mi; } continue; }
-    if (haveJa.has(it.ja)) continue;
-    pool.items.push(it); haveJa.add(it.ja);
-  }
-  pool.v = 2; S.pool = pool; indexPool(); savePool();
-}
 // 以前の版（復習間隔だけを持っていた記録）を、回答履歴の形に変換する
 function convertLegacy() {
   const have = new Set(S.log.map(e => e.id));
@@ -1540,30 +1510,6 @@ function convertLegacy() {
   if (n) S.log.sort((a, b) => a.t - b.t);
   return n;
 }
-async function importBackup(file) {
-  if (!file) return;
-  try {
-    const data = JSON.parse(await file.text());
-    if (!data || data.app !== "talk-eisaku" || !data.cards || typeof data.cards !== "object") throw 0;
-    let n = 0;
-    for (const [id, c] of Object.entries(data.cards)) {
-      if (!c || typeof c !== "object" || !c.ja || !c.en) continue;
-      const l = S.cards[id];
-      if (!l || (c.last || 0) > (l.last || 0)) { S.cards[id] = { ...c, u: Date.now() }; n++; }
-    }
-    if (Array.isArray(data.log)) {
-      const keyOf = e => e.id + "|" + e.t + "|" + e.k, have = new Set(S.log.map(keyOf));
-      for (const e of data.log) if (e && e.id && e.t && e.k && !have.has(keyOf(e))) { S.log.push(e); have.add(keyOf(e)); }
-      S.log.sort((a, b) => a.t - b.t);
-    }
-    convertLegacy();
-    if (data.pool) mergePool(data.pool);
-    if (data.settings && typeof data.settings === "object") { Object.assign(S.settings, data.settings); persistSettings(); }
-    fitModel(true); saveCards(); saveLog(); S.plan = null; Cloud.markAll();
-    toast(`バックアップから${n.toLocaleString()}件の学習記録を復元しました。`); go("home");
-  } catch { toast("バックアップファイルとして読み取れませんでした。"); }
-}
-
 
 /* ============ 起動 ============ */
 async function boot() {
