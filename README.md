@@ -54,29 +54,17 @@
    npm run dev
    ```
 
-3. `capacitor.config.json` の `appId`（今は `jp.talkeisaku.app`）を、あなたのドメインを逆にした形に変えます。ストアに出したあとは変えられません。
+3. `capacitor.config.json` の `appId`（今は `jp.talkeisaku.app`）を、あなたのドメインを逆にした形に変えます。ストアに出したあとは変えられません。`android/` にも同じ値が入っているので、`android/app/build.gradle` の `namespace` と `applicationId`、`android/app/src/main/res/values/strings.xml`、`MainActivity.java` の置き場所とパッケージ名も合わせて直します。
 
 ### Android
 
-```bash
-npx cap add android
-```
-
-`android/app/src/main/AndroidManifest.xml` の `<manifest>` 直下に、次を追加します（音声入力と読み上げに必要）。
-
-```xml
-<uses-permission android:name="android.permission.RECORD_AUDIO" />
-<queries>
-  <intent><action android:name="android.speech.RecognitionService" /></intent>
-  <intent><action android:name="android.intent.action.TTS_SERVICE" /></intent>
-</queries>
-```
+Android のプロジェクトは `android/` に入っています。音声入力に必要なマイクの権限と、音声認識・読み上げのサービスの指定も、`android/app/src/main/AndroidManifest.xml` に書いてあります。
 
 ```bash
 npm run android
 ```
 
-Android Studio が開くので、実機かエミュレーターで実行します。
+Android Studio が開くので、実機かエミュレーターで実行します。初めて開いたときに Gradle が使う Java（Gradle JVM）を聞かれたら、JDK 21 を選びます。
 
 ### iPhone（Mac が必要）
 

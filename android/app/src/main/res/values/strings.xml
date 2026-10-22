@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">トーク英作</string>
+    <string name="title_activity_main">トーク英作</string>
+    <string name="package_name">jp.talkeisaku.app</string>
+    <string name="custom_url_scheme">jp.talkeisaku.app</string>
+</resources>

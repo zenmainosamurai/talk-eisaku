@@ -18,6 +18,7 @@
 | `src/vault.js` | 学習記録の暗号化（復元キー、鍵の導出、暗号化・復号、鍵付きハッシュID） |
 | `src/native.js` | 音声入力・読み上げ・ファイル保存。スマホ版は Capacitor プラグイン、Web版はブラウザの機能 |
 | `src/store.js` | 端末内の保存（IndexedDB と localStorage） |
+| `android/` | Android アプリのプロジェクト（Capacitor が作成）。Web版の変更は `npm run android` で反映する |
 | `supabase/migrations/` | データベース（vault_keys、vault_items、subscriptions、usage_daily） |
 | `supabase/functions/coach/` | AIコーチの Edge Function。指示文は `prompts.ts` |
 | `test/` | Supabase と Capacitor を偽物に置き換えた、ネット不要のテスト用ページ |
@@ -83,9 +84,9 @@
 - AIに初めて送る前の同意画面
 - 画面上の「コーチ」を「AIコーチ」と表記すること、AIの回答は誤ることがあるという注意書き
 - 免責事項の文案の更新。学習記録を暗号化してサーバーに保存するようになったこと、問題にしないと判定された発言も判定のために送ることを反映する。
-- Android Studio・Xcode でのビルドの確認。`npm install` と `npm run build`（Web版）が通ることは確かめ、版の組み合わせは `package-lock.json` で固定した（2026年10月22日、Node 22）。
+- Xcode でのビルドの確認。Web版は `npm run build` が通ること、Android版は Android Studio でビルドしてエミュレーターで起動することを確かめた（2026年10月22日）。版の組み合わせは `package-lock.json` で固定している。
 - 実機での音声プラグイン（音声入力・読み上げ）の確認
-- `capacitor.config.json` の `appId`（`jp.talkeisaku.app` は仮）
+- `capacitor.config.json` の `appId`（`jp.talkeisaku.app` は仮）。変えるときは `android/` の中（`build.gradle` の `namespace`・`applicationId`、`strings.xml`、`MainActivity.java` のパッケージ）も合わせて直す。
 
 ## 作業のルール
 

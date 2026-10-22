@@ -11,6 +11,9 @@ dist/
 supabase/.temp/
 supabase/.branches/
 
+# Android Studio が作る個人ごとの設定（選んだエミュレーターなど）
+android/.idea/
+
 # ログ
 npm-debug.log*
 *.log
