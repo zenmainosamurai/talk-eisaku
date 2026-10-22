@@ -10,6 +10,7 @@
 | ログイン | Supabase Auth | メールに届く6桁のコードでログイン |
 | 学習記録の同期 | Supabase Database | 端末で暗号化した学習記録だけを保存（`supabase/migrations/`） |
 | AIコーチ | Supabase Edge Functions | ログイン・1日の上限を確認して Claude API に中継（`supabase/functions/coach/`） |
+| アカウントの削除 | Supabase Edge Functions | ログイン中の本人のアカウントと、サーバー上の記録をすべて消す（`supabase/functions/delete-account/`） |
 
 ### データの流れ
 
@@ -39,6 +40,7 @@
    npx supabase db push
    npx supabase secrets set ANTHROPIC_API_KEY=sk-ant-... DAILY_LIMIT=300 REQUIRE_SUBSCRIPTION=false
    npx supabase functions deploy coach
+   npx supabase functions deploy delete-account
    ```
 
 5. 公開する前に、「Authentication」→「Emails」で独自のSMTP（メール送信サービス）を設定します。Supabase標準のメール送信は回数の制限が厳しく、開発用です。
@@ -91,13 +93,13 @@ npm run ios
 
 - アプリのコードを変えたら：`npm run android` / `npm run ios`（中で `vite build` と `cap sync` を実行します）
 - 指示文を変えたら：`npx supabase functions deploy coach`
+- アカウントの削除の処理を変えたら：`npx supabase functions deploy delete-account`
 - データベースを変えたら：`supabase/migrations/` に新しいSQLを足して `npx supabase db push`
 
 ## まだ入っていないもの
 
 - サブスク課金（RevenueCat）。入れるまでは `REQUIRE_SUBSCRIPTION=false` のまま、ログインした人は誰でも1日 `DAILY_LIMIT` 回まで使えます。
 - Google・Appleでのログイン
-- アカウントの削除（ストアの審査で求められるので、公開前に必要）
 
 ## テスト
 

@@ -192,6 +192,26 @@ export const Cloud = {
     this.saveSyncState();
     if (rows.length) { this.lastSyncAt = Date.now(); this.hooks.changed(true); }
   },
+  // アカウントの削除：Edge Function（delete-account）がサーバー上のアカウントと記録をすべて消す
+  // 成功したら、この端末のログイン状態と同期の状態も消す（端末の学習データは main.js 側で消す）
+  async deleteAccount() {
+    if (!this.configured()) throw { code: "unconfigured" };
+    if (!this.user) throw { code: "not_signed_in" };
+    if (typeof navigator !== "undefined" && navigator.onLine === false) throw { code: "offline" };
+    clearTimeout(this.pushTimer);
+    const { data, error } = await this.sb.functions.invoke("delete-account", { body: {} });
+    if (error || !data || !data.ok) {
+      let code = "network";
+      try { if (error && error.context && typeof error.context.json === "function") code = (await error.context.json()).error || "upstream_error"; } catch {}
+      throw { code };
+    }
+    try { await this.sb.auth.signOut({ scope: "local" }); } catch {}
+    await this.hooks.store.del("vaultKeys");
+    await this.hooks.store.del("sync");
+    this.user = null; this.keys = null; this.vaultRecord = null; this.pendingSetup = null; this.syncError = null; this.lastSyncAt = 0;
+    Object.assign(this.sync$, { userId: null, lastPull: null, cards: new Set(), days: new Set(), meta: false });
+    this.status = "signedOut"; this.hooks.changed();
+  },
   // 「学習記録を消去」：サーバー上の学習記録も消す（鍵はそのまま）
   async wipeRemote() {
     if (this.status !== "ready") return;

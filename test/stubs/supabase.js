@@ -51,6 +51,15 @@ export function createClient() {
     from: t => new Query(t),
     functions: {
       async invoke(name, { body }) {
+        if (name === "delete-account") {
+          if (!session) return { data: null, error: { context: { json: async () => ({ error: "not_signed_in" }) } } };
+          if (window.__offline) return { data: null, error: { context: null } };
+          const db = load(), uid = session.user.id;
+          for (const t of Object.keys(db)) db[t] = db[t].filter(r => r.user_id !== uid);
+          save(db);
+          (window.__deletedUsers = window.__deletedUsers || []).push(uid);
+          return { data: { ok: true }, error: null };
+        }
         (window.__coachCalls = window.__coachCalls || []).push(body);
         if (!session) return { data: null, error: { context: { json: async () => ({ error: "not_signed_in" }) } } };
         return { data: { data: window.__fakeCoach ? window.__fakeCoach(body) : defaultCoach(body) }, error: null };

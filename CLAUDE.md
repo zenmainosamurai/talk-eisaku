@@ -22,6 +22,7 @@
 | `scripts/make_android_icons.py` | `public/` のアイコンから Android のアイコンと起動画面のアイコンを作る（Python と Pillow が必要） |
 | `supabase/migrations/` | データベース（vault_keys、vault_items、subscriptions、usage_daily） |
 | `supabase/functions/coach/` | AIコーチの Edge Function。指示文は `prompts.ts` |
+| `supabase/functions/delete-account/` | アカウントの削除の Edge Function。auth のユーザーを消し、関連する行は `on delete cascade` で消える |
 | `test/` | Supabase と Capacitor を偽物に置き換えた、ネット不要のテスト用ページ |
 
 主なコマンドは次のとおり。
@@ -31,6 +32,7 @@
 - `npm run android` / `npm run ios`：ビルドして Android Studio / Xcode を開く
 - `npx supabase db push`：データベースの変更を反映
 - `npx supabase functions deploy coach`：指示文や Edge Function の変更を反映
+- `npx supabase functions deploy delete-account`：アカウントの削除の Edge Function の変更を反映
 
 ## 変えてはいけない方針
 
@@ -46,6 +48,7 @@
 - Anthropic の APIキーは Supabase の Secrets にだけ置く。アプリには入れない。
 - AIへの送信は、同意画面（`viewConsent()`）で同意を得てから行う。同意画面は初めて「はじめる」を押したときに出し、同意前は先読みも含めて一切送らない（`teach()`・`grade()` でも確かめる）。同意しなければホームに戻る。
 - 同意はこの端末にだけ保存し（`tk.aiConsent.v1`）、サーバーには送らない。設定の「データの扱い」で取り消せる。同意画面の文案を大きく変えたら `CONSENT_VERSION` を上げて、同意を取り直す。
+- アカウントの削除は、設定の「アカウント」から確認画面に進み、「元に戻せないことを理解しました」にチェックしてから行う。サーバーのアカウントと記録をすべて消し（`delete-account`）、成功したらこの端末のデータ（トーク履歴・学習記録・設定・AIへの同意）もすべて消して最初の画面に戻る。失敗したときは何も消さない。サブスクは自動では解約されないことを画面で案内する。
 
 ### 出題と採点
 
@@ -83,8 +86,7 @@
 ## まだできていないこと
 
 - RevenueCat でのサブスク課金。連携するまでは Edge Function の `REQUIRE_SUBSCRIPTION=false` のままにし、ログインした人は誰でも1日 `DAILY_LIMIT` 回まで使える。
-- アカウントの削除（ストアの審査で求められる）
-- Google・Apple でのログイン
+- Google・Apple でのログイン。Apple でのログインを入れるときは、アカウントの削除のときに Apple のトークンの取り消し（revoke）も行う。
 - 免責事項の文案の更新。学習記録を暗号化してサーバーに保存するようになったこと、問題にしないと判定された発言も判定のために送ること、AIに送る前の同意画面を設けたこと（同意はこの端末にだけ保存し、設定で取り消せる）を反映する。
 - Xcode でのビルドの確認。Web版は `npm run build` が通ること、Android版は Android Studio でビルドしてエミュレーターで起動することを確かめた（2026年10月22日）。版の組み合わせは `package-lock.json` で固定している。
 - 実機での音声プラグイン（音声入力・読み上げ）の確認

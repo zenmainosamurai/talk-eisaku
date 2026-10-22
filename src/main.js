@@ -90,6 +90,7 @@ const canStudy = () => Cloud.signedIn() && Cloud.status !== "checking";
 
 
 /* ============ 状態 ============ */
+const DEFAULT_SETTINGS = { newPerDay: 10, rate: 0.95, autoSpeak: true, sendContext: true, level: "intermediate" };
 const S = {
   view: "home",
   pool: null,            // { v:2, sources:[{key, partner, me, meIdx, names, msgs, count, at}], items:[{id, d, ja, src, mi}] }
@@ -97,7 +98,7 @@ const S = {
   cards: {},             // id -> { id, ja, d, src, mi, en, alts, tip, ph, phj, created, S, last, lapses }
   log: [],               // 回答履歴 { id, t, k: learn|correct|close|wrong|init|seen, p?, dt?, s?, l? }
   mem: { m: 1, s0: 1, n: 0, nAt: 0, fitted: false, at: 0 },  // あなた向けの記憶モデル
-  settings: { newPerDay: 10, rate: 0.95, autoSpeak: true, sendContext: true, level: "intermediate" },
+  settings: { ...DEFAULT_SETTINGS },
   metaAt: 0, wipedAt: 0, vaultLater: false,
   aiConsent: null,       // AIへの送信の同意 { v, at }。この端末にだけ保存し、サーバーには送らない
   pendingPlan: null, consentFrom: null,
@@ -643,12 +644,12 @@ function render() {
   if (!S.ready) { app.replaceChildren(h("div", { class: "view" }, h("p", { class: "loading" }, "読み込んでいます…"))); return; }
   let v = S.view;
   // ログイン直後は、復元キーの作成・入力を先に済ませる
-  if (v !== "setup" && v !== "login") {
+  if (v !== "setup" && v !== "login" && v !== "deleteAccount") {
     if (Cloud.status === "needsSetup") v = "vaultSetup";
     else if (Cloud.status === "needsKey" && !S.vaultLater) v = "vaultUnlock";
   }
   const node = v === "setup" ? viewSetup() : v === "login" ? viewLogin() : v === "vaultSetup" ? viewVaultSetup() : v === "vaultUnlock" ? viewVaultUnlock() : v === "quiz" ? viewQuiz() : v === "done" ? viewDone()
-    : v === "weak" ? viewWeak() : v === "settings" ? viewSettings() : v === "consent" ? viewConsent() : viewHome();
+    : v === "weak" ? viewWeak() : v === "settings" ? viewSettings() : v === "consent" ? viewConsent() : v === "deleteAccount" ? viewDeleteAccount() : viewHome();
   app.replaceChildren(node);
 }
 function go(view) { stopListening(); S.view = view; if (view === "home") S.plan = null; render(); window.scrollTo(0, 0); }
@@ -1176,6 +1177,58 @@ function viewConsent() {
             h("button", { class: "btn primary", type: "button", onclick: agree }, from === "start" ? "同意してはじめる" : "同意する"))));
 }
 
+/* --- アカウントの削除 --- */
+// この端末に保存しているものをすべて消し、はじめて開いたときの状態に戻す
+async function wipeThisDevice() {
+  for (const k of Object.keys(pending)) clearTimeout(pending[k]), delete pending[k];
+  stopListening();
+  Object.assign(S, { pool: null, cards: {}, log: [], mem: { m: 1, s0: 1, n: 0, nAt: 0, fitted: false, at: 0 }, settings: { ...DEFAULT_SETTINGS },
+    metaAt: 0, wipedAt: 0, aiConsent: null, pendingPlan: null, consentFrom: null, vaultLater: false, plan: null, session: null, setup: null });
+  indexPool(); lessons.clear(); skippedNow.clear();
+  await Promise.all(["pool", "cards", "log", "skips", "vaultKeys", "sync"].map(k => Store.del(k)));
+  for (const key of Object.values(K)) LS.del(key);
+}
+const DELETE = { understood: false, busy: false };
+function viewDeleteAccount() {
+  const back = h("button", { class: "link", style: "padding-left:0", type: "button", disabled: DELETE.busy, onclick: () => go("settings") }, "戻る");
+  const li = t => h("li", null, t);
+  const check = h("input", { type: "checkbox", id: "understood", checked: DELETE.understood, disabled: DELETE.busy, onchange: e => { DELETE.understood = e.target.checked; del.disabled = !DELETE.understood; } });
+  const del = h("button", { class: "btn primary danger block", type: "button", disabled: !DELETE.understood || DELETE.busy, onclick: async () => {
+    DELETE.busy = true; render();
+    try {
+      await Cloud.deleteAccount();
+      await wipeThisDevice();
+      DELETE.busy = false; DELETE.understood = false;
+      toast("アカウントを削除しました。");
+      go("home");
+    } catch (e) {
+      DELETE.busy = false; render();
+      const code = e && e.code;
+      toast(code === "offline" ? "インターネットに接続されていません。接続してから、もう一度試してください。"
+        : code === "not_signed_in" ? "ログインの有効期限が切れています。ログインし直してから、もう一度試してください。"
+        : "アカウントを削除できませんでした。電波の状態を確認して、もう一度試してください。", 6000);
+    }
+  } }, DELETE.busy ? "削除しています…" : "アカウントを削除する");
+  return h("div", { class: "view" },
+    h("div", { class: "bar" }, back),
+    h("div", { class: "intro" },
+      h("p", { class: "title", style: "font-size:1.5rem" }, "アカウントを削除する"),
+      h("p", null, "アカウントを削除すると、次のものがすべて消えます。元に戻すことはできません。")),
+    h("section", { style: "border-top:0" },
+      h("ul", { class: "consent-list" },
+        li(`ログインに使っているアカウント（${Cloud.email()}）`),
+        li("サーバーに保存している学習記録と回答履歴（暗号化したもの）と、復元キーで開く鍵"),
+        li("この端末に保存しているトーク履歴・学習記録・設定")),
+      h("p", { class: "note", style: "margin:12px 0 0" }, "ほかの端末でもこのアカウントを使っていた場合、その端末はログアウトされます。その端末に残っている記録は、その端末でアプリを削除すると消えます。"),
+      h("p", { class: "banner" }, "サブスクに登録している場合、アカウントを削除しても自動では解約されません。App Store または Google Play の定期購入の画面で解約してください。"),
+      h("p", { class: "note", style: "margin:12px 0 0" }, "記録を手元に残したい場合は、先にバックアップをファイルに保存してください。"),
+      h("button", { class: "btn ghost block", type: "button", style: "margin-top:10px", disabled: DELETE.busy, onclick: exportBackup }, "バックアップを保存する")),
+    h("section", null,
+      h("label", { class: "check" }, check, h("span", null, "元に戻せないことを理解しました")),
+      h("div", { style: "margin-top:14px" }, del)),
+    h("div", { style: "height:24px" }));
+}
+
 /* --- 復元キーの作成（はじめてのログイン） --- */
 const VAULT = { key: null, saved: false, busy: false, input: "", armedReset: false };
 function viewVaultSetup() {
@@ -1281,7 +1334,8 @@ function viewSettings() {
         h("div", { class: "btn-row" },
           Cloud.status === "needsKey" ? h("button", { class: "btn ghost", type: "button", onclick: () => { S.vaultLater = false; go("home"); } }, "復元キーを入力") : null,
           Cloud.status === "ready" ? h("button", { class: "btn ghost", type: "button", onclick: () => Cloud.sync() }, "今すぐ同期") : null,
-          h("button", { class: "btn ghost", type: "button", onclick: async () => { await Cloud.signOut(); toast("ログアウトしました。"); go("home"); } }, "ログアウト"))]
+          h("button", { class: "btn ghost", type: "button", onclick: async () => { await Cloud.signOut(); toast("ログアウトしました。"); go("home"); } }, "ログアウト")),
+        h("button", { class: "link danger", style: "padding-left:0;margin-top:6px", type: "button", onclick: () => { DELETE.understood = false; go("deleteAccount"); } }, "アカウントを削除する")]
     : [note(syncLine(), true), Cloud.configured() ? h("div", { class: "btn-row" }, h("button", { class: "btn primary", type: "button", onclick: () => go("login") }, "ログイン")) : null];
 
   return h("div", { class: "view" },
