@@ -1,8 +1,8 @@
-// スマホアプリ（Capacitor）ではネイティブの音声認識・読み上げ・戻るボタン・共有の受け取りを使い、Webではブラウザの機能を使う
-// AndroidのWebViewはブラウザの音声認識・読み上げに対応していないため、アプリではプラグインが必要
+// スマホアプリ（Capacitor）ではネイティブの音声認識・戻るボタン・共有の受け取りを使い、Webではブラウザの機能を使う
+// AndroidのWebViewはブラウザの音声認識に対応していないため、アプリではプラグインが必要
+// 読み上げの音声は OpenAI で作ったもの（cloud.js の tts）を、ここで再生するだけ（端末の読み上げ機能は使わない）
 import { Capacitor, registerPlugin } from "@capacitor/core";
 import { SpeechRecognition } from "@capacitor-community/speech-recognition";
-import { TextToSpeech } from "@capacitor-community/text-to-speech";
 import { App } from "@capacitor/app";
 
 export const isNative = () => Capacitor.isNativePlatform();
@@ -77,33 +77,24 @@ function startWeb({ onText, onEnd, onError }) {
 }
 
 // ---- 読み上げ ----
-let webVoice = null;
+// 音声（mp3）を再生する。速さは再生の速さで変える（声の高さは変えない）
+let player = null, playerUrl = null;
 export const Speech = {
-  init() {
-    if (isNative() || !("speechSynthesis" in window)) return;
-    const pick = () => {
-      const vs = speechSynthesis.getVoices();
-      webVoice = vs.find(v => /en[-_]US/i.test(v.lang) && /google/i.test(v.name)) || vs.find(v => /en[-_]US/i.test(v.lang)) || vs.find(v => /^en/i.test(v.lang)) || null;
-    };
-    pick();
-    try { speechSynthesis.addEventListener("voiceschanged", pick); } catch {}
+  stop() {
+    if (player) { try { player.pause(); } catch {} player = null; }
+    if (playerUrl) { URL.revokeObjectURL(playerUrl); playerUrl = null; }
   },
-  // 成功したら true
-  async speak(text, rate) {
-    if (!text) return false;
-    if (isNative()) {
-      try { await TextToSpeech.stop(); } catch {}
-      try { await TextToSpeech.speak({ text, lang: "en-US", rate, pitch: 1.0, volume: 1.0, category: "playback" }); return true; }
-      catch { return false; }
-    }
-    if (!("speechSynthesis" in window)) return false;
+  // 最後まで再生できたら true
+  play(blob, rate) {
+    this.stop();
     return new Promise(res => {
-      speechSynthesis.cancel();
-      const u = new SpeechSynthesisUtterance(text);
-      u.lang = "en-US"; if (webVoice) u.voice = webVoice; u.rate = rate;
-      u.onend = () => res(true);
-      u.onerror = e => res(e.error === "interrupted" || e.error === "canceled");
-      speechSynthesis.speak(u);
+      const url = URL.createObjectURL(blob), a = new Audio(url);
+      player = a; playerUrl = url;
+      a.defaultPlaybackRate = rate; a.playbackRate = rate; a.preservesPitch = true;
+      const done = ok => { if (player === a) this.stop(); res(ok); };
+      a.onended = () => done(true);
+      a.onerror = () => done(false);
+      a.play().catch(e => done(!!e && e.name === "AbortError"));
     });
   }
 };

@@ -60,12 +60,26 @@ export function createClient() {
           (window.__deletedUsers = window.__deletedUsers || []).push(uid);
           return { data: { ok: true }, error: null };
         }
+        if (name === "tts") {
+          (window.__ttsCalls = window.__ttsCalls || []).push(body.text);
+          if (!session) return { data: null, error: { context: { json: async () => ({ error: "not_signed_in" }) } } };
+          if (window.__ttsFail) return { data: null, error: { context: { json: async () => ({ error: window.__ttsFail }) } } };
+          return { data: new Blob([silentWav()], { type: "application/octet-stream" }), error: null };
+        }
         (window.__coachCalls = window.__coachCalls || []).push(body);
         if (!session) return { data: null, error: { context: { json: async () => ({ error: "not_signed_in" }) } } };
         return { data: { data: window.__fakeCoach ? window.__fakeCoach(body) : defaultCoach(body) }, error: null };
       }
     }
   };
+}
+// 読み上げの代わり：0.05秒の無音（WAV）
+function silentWav() {
+  const n = 400, buf = new ArrayBuffer(44 + n), v = new DataView(buf), w = (o, t) => [...t].forEach((c, i) => v.setUint8(o + i, c.charCodeAt(0)));
+  w(0, "RIFF"); v.setUint32(4, 36 + n, true); w(8, "WAVE"); w(12, "fmt "); v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+  v.setUint32(24, 8000, true); v.setUint32(28, 8000, true); v.setUint16(32, 1, true); v.setUint16(34, 8, true); w(36, "data"); v.setUint32(40, n, true);
+  for (let i = 0; i < n; i++) v.setUint8(44 + i, 128);
+  return buf;
 }
 function defaultCoach(b) {
   if (b.kind === "teach") return (b.ja || "").length < 6 ? { worth: false, skip_reason: "短い" } : { worth: true, model: "Example answer lol", alts: ["Another way"], point: "ポイント", phrase: "example", phrase_ja: "例" };

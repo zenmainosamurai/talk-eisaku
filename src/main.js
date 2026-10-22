@@ -1,5 +1,5 @@
 // トーク英作：アプリ本体（Web版とスマホアプリ版で共通）
-import { LS, Store } from "./store.js";
+import { LS, Store, AudioCache } from "./store.js";
 import { Cloud } from "./cloud.js";
 import { Voice, Speech, isNative, onBackButton, onSharedText, shareTargetSupported } from "./native.js";
 
@@ -404,13 +404,34 @@ function toggleListening(ta, btn, onChange) {
     if (rec === waiting) rec = ctrl;
   });
 }
+// 読み上げ：OpenAI で作った音声を端末に保存し、同じ英文は保存したものを使う
+// 作るときはログインとAIへの送信の同意が必要（sample：設定の「試しに聞く」の決まった英文は、同意の前でも作れる）
+const TTS_VOICE = "gpt-audio-1.5/marin"; // サーバー（supabase/functions/tts）の声を変えたら、ここも変えて作り直す
 const TTS = {
-  init() { Speech.init(); },
-  speak(text, auto = false) {
+  seq: 0,
+  stop() { this.seq++; Speech.stop(); },
+  async speak(text, auto = false, sample = false) {
     if (!text) return;
-    Speech.speak(text, S.settings.rate).then(ok => { if (!ok && !auto) toast("読み上げできませんでした。"); });
+    const my = ++this.seq, key = TTS_VOICE + "|" + text;
+    let buf = await AudioCache.get(key);
+    if (!buf) {
+      if (!sample && !hasConsent()) { if (!auto) toast("読み上げるには、AIへの送信に同意してください。"); return; }
+      try { buf = await Cloud.tts(text); }
+      catch (e) { if (!auto && my === this.seq) toast(ttsErrorCopy(e && e.code), 5000); return; }
+      AudioCache.put(key, buf);
+    }
+    if (my !== this.seq) return; // 待っている間に別の読み上げが始まった
+    const ok = await Speech.play(new Blob([buf], { type: "audio/mpeg" }), S.settings.rate);
+    if (!ok && !auto && my === this.seq) toast("読み上げできませんでした。");
   }
 };
+function ttsErrorCopy(code) {
+  if (code === "unconfigured") return "サーバーの設定がまだのため、読み上げが使えません。";
+  if (code === "not_signed_in") return "読み上げるには、ログインしてください。";
+  if (code === "no_subscription") return "読み上げは、サブスク会員向けの機能です。";
+  if (["daily_limit", "offline", "network", "overloaded"].includes(code)) return errorCopy(code);
+  return "読み上げできませんでした。もう一度試してください。";
+}
 
 const speakBtn = text => h("button", { class: "icon-btn", type: "button", "aria-label": "読み上げる", html: ICON.speak, onclick: () => TTS.speak(text) });
 
@@ -436,7 +457,7 @@ function speakable(s) {
 /* ============ AIコーチ（Supabase Edge Function 経由） ============ */
 // AIに送る前に、同意画面で同意を得る。同意はこの端末にだけ保存する
 // 同意画面の文案を大きく変えたら CONSENT_VERSION を上げて、同意を取り直す
-const CONSENT_VERSION = 1;
+const CONSENT_VERSION = 2; // 2：送り先を Anthropic社から OpenAI社に替え、読み上げを加えた
 const AI_NOTE = "AIの回答は誤ることがあります。";
 const hasConsent = () => !!(S.aiConsent && S.aiConsent.v >= CONSENT_VERSION);
 function setConsent(on) {
@@ -495,11 +516,11 @@ function errorCopy(code) {
   if (code === "no_subscription") return "お手本と採点は、サブスク会員向けの機能です。";
   if (code === "daily_limit") return "今日の利用上限に達しました。明日また使えます。";
   if (code === "rate_limited") return "短時間に使いすぎたため、少し待ってから、もう一度試してください。";
-  if (code === "overloaded") return "Claudeが混み合っています。少し待ってから、もう一度試してください。";
+  if (code === "overloaded") return "AIが混み合っています。少し待ってから、もう一度試してください。";
   if (code === "offline") return "インターネットに接続されていません。接続してから、もう一度試してください。";
   if (code === "network") return "サーバーに接続できませんでした。電波の状態を確認して、もう一度試してください。";
   if (code === "refused") return "この文は採点できませんでした。とばして次へ進んでください。";
-  return "Claudeから返事を受け取れませんでした。もう一度試してください。";
+  return "AIから返事を受け取れませんでした。もう一度試してください。";
 }
 
 /* ============ セッション ============ */
@@ -542,7 +563,7 @@ function prefetchNext() {
     if (it) lessonFor(it).catch(() => {});
   }
 }
-// Claudeが「問題にしない」と判定したら、何も表示せずに代わりの問題を1つ入れて次へ進む
+// AIが「問題にしない」と判定したら、何も表示せずに代わりの問題を1つ入れて次へ進む
 function skipCurrent() {
   const ss = S.session, id = ss.cur;
   skippedNow.add(id);
@@ -742,7 +763,7 @@ function viewSetup() {
       h("label", { class: "field", for: "me" }, "あなたの名前"),
       h("select", { id: "me", onchange: e => { st.me = e.target.value; render(); } },
         speakers.map(([n, c]) => h("option", { value: n, selected: n === st.me }, `${n}（${c.toLocaleString()}件）`))),
-      h("p", { class: "note", style: "margin-top:10px" }, `この名前の発言から、${items.length.toLocaleString()}問を作れます。スタンプ・写真・URLだけの発言は除いています。問題にする意味があるかは、出題するときにClaudeがあなたの英語レベルに合わせて判定します。`
+      h("p", { class: "note", style: "margin-top:10px" }, `この名前の発言から、${items.length.toLocaleString()}問を作れます。スタンプ・写真・URLだけの発言は除いています。問題にする意味があるかは、出題するときにAIがあなたの英語レベルに合わせて判定します。`
         + (already ? `うち${already.toLocaleString()}問は読み込み済みです（前後の文脈を追加します）。` : ""))),
     examples.length ? h("section", null, h("h2", null, "問題の例"),
       examples.map(it => h("div", { class: "row me" }, h("div", { class: "bubble mine" }, it.ja)))) : null,
@@ -1221,17 +1242,19 @@ function viewConsent() {
     h("div", { class: "bar" }, navBtn("back", "戻る", back)),
     h("div", { class: "intro" },
       h("p", { class: "title", style: "font-size:1.375rem" }, "AIコーチを使う前に"),
-      h("p", null, "お手本づくりと採点には、Anthropic社のAI「Claude」を使います。AIコーチを使うと、次の内容が運営者のサーバーを経由してAnthropic社に送られます。")),
+      h("p", null, "お手本づくり・採点・読み上げには、OpenAI社のAIを使います。AIコーチを使うと、次の内容が運営者のサーバーを経由してOpenAI社に送られます。")),
     h("section", { style: "border-top:0" },
       h("ul", { class: "consent-list" },
         li("問題にするあなたの発言（問題にしないと判断された発言も、判断のために送ります）"),
         li("あなたの英語の回答と、前に表示したお手本"),
         li("設定した英語のレベル"),
+        li("読み上げる英文（お手本など）"),
         li(S.settings.sendContext
           ? "前後のやり取り（前3件・後ろ2件。相手の発言を含みます。名前は送りません。設定でオフにできます）"
           : "前後のやり取り：今の設定では送りません（設定でオンにすると、前3件・後ろ2件を相手の発言も含めて送ります。名前は送りません）")),
-      h("p", { class: "note", style: "margin:12px 0 0" }, "運営者のサーバーには、これらを保存しません。Anthropic社での取り扱いは、同社のプライバシーポリシー（",
-        h("a", { href: "https://www.anthropic.com/legal", target: "_blank", rel: "noopener" }, "www.anthropic.com/legal"), "）に従います。"),
+      h("p", { class: "note", style: "margin:12px 0 0" }, "運営者のサーバーには、これらを保存しません。OpenAI社での取り扱いは、同社のポリシー（",
+        h("a", { href: "https://openai.com/policies/", target: "_blank", rel: "noopener" }, "openai.com/policies"), "）に従います。"),
+      h("p", { class: "note", style: "margin:8px 0 0" }, "読み上げの声は、AIで作った合成音声です。作った音声はこの端末に保存し、同じ英文を読み上げるときに使います。"),
       h("p", { class: "banner" }, AI_NOTE + "お手本や判定は参考としてお使いください。")),
     h("div", { style: "padding:8px 0 28px" },
       hasConsent()
@@ -1246,11 +1269,12 @@ function viewConsent() {
 // この端末に保存しているものをすべて消し、はじめて開いたときの状態に戻す
 async function wipeThisDevice() {
   for (const k of Object.keys(pending)) clearTimeout(pending[k]), delete pending[k];
-  stopListening();
+  stopListening(); TTS.stop();
   Object.assign(S, { pool: null, cards: {}, log: [], mem: { m: 1, s0: 1, n: 0, nAt: 0, fitted: false, at: 0 }, settings: { ...DEFAULT_SETTINGS },
     metaAt: 0, wipedAt: 0, aiConsent: null, pendingPlan: null, consentFrom: null, vaultLater: false, plan: null, session: null, setup: null });
   indexPool(); lessons.clear(); skippedNow.clear();
   await Promise.all(["pool", "cards", "log", "skips", "vaultKeys", "sync"].map(k => Store.del(k)));
+  await AudioCache.clear();
   for (const key of Object.values(K)) LS.del(key);
 }
 const DELETE = { understood: false, busy: false };
@@ -1396,7 +1420,7 @@ function viewSettings() {
     h("section", { style: "border-top:0;padding-top:4px" }, h("h2", null, "アカウント"), account),
     h("section", null, h("h2", null, "翻訳と採点"),
       h("div", { class: "row-set" }, h("span", null, "前後のやり取りも踏まえて訳す"), sw(st.sendContext, "前後のやり取りも踏まえて訳す", () => { st.sendContext = !st.sendContext; persistSettings(); })),
-      h("p", { class: "note", style: "margin:8px 0 0" }, "オンにすると、対象の発言の前3件・後ろ2件（同じ日のやり取り）も、相手の発言を含めてClaudeに送ります。話し手の名前は送りません。")),
+      h("p", { class: "note", style: "margin:8px 0 0" }, "オンにすると、対象の発言の前3件・後ろ2件（同じ日のやり取り）も、相手の発言を含めてAIに送ります。話し手の名前は送りません。")),
     h("section", null, h("h2", null, "あなたの英語レベル"),
       h("div", { class: "seg" }, Object.entries(LEVELS).map(([k, v]) => h("button", { class: "plain", type: "button", "aria-pressed": String(levelKey() === k),
         onclick: () => { st.level = k; persistSettings(); skippedNow.clear(); S.plan = null; render(); } }, v.name))),
@@ -1406,7 +1430,7 @@ function viewSettings() {
       h("div", { class: "row-set" }, h("h2", { style: "margin:0" }, "読み上げの速さ"), rateLbl),
       h("input", { type: "range", min: "0.6", max: "1.2", step: "0.05", value: String(st.rate), "aria-label": "読み上げの速さ",
         oninput: e => { st.rate = +e.target.value; rateLbl.textContent = `${st.rate.toFixed(2)}倍`; }, onchange: persistSettings }),
-      h("button", { class: "link", style: "padding-left:0", type: "button", onclick: () => TTS.speak("Hey, are you free this weekend?") }, "試しに聞く"),
+      h("button", { class: "link", style: "padding-left:0", type: "button", onclick: () => TTS.speak("Hey, are you free this weekend?", false, true) }, "試しに聞く"),
       h("div", { class: "row-set", style: "margin-top:12px" }, h("span", null, "お手本を自動で読み上げる"), sw(st.autoSpeak, "お手本を自動で読み上げる", () => { st.autoSpeak = !st.autoSpeak; persistSettings(); }))),
     h("section", null, h("h2", null, "トーク履歴"),
       S.pool && S.pool.sources.length
@@ -1428,9 +1452,10 @@ function viewSettings() {
       note("トーク履歴はお使いの端末内のみに保存され、サーバーには送信・保管されません。"),
       h("h3", { class: "data-h" }, "学習・回答履歴の暗号化"),
       note("学習・回答データは端末側で暗号化した上でサーバーに保存されます。運営者であっても内容は閲覧できません。なお、復元キーを紛失された場合、運営側からデータを復元することはできませんのでご注意ください。"),
-      h("h3", { class: "data-h" }, "外部AI（Claude API）との連携"),
+      h("h3", { class: "data-h" }, "外部AI（OpenAI API）との連携"),
       // 前後の文脈は、設定でオフにしているときは送らないので、文面からも外す
-      note(`採点やお手本の作成にあたり、ユーザーの発言や回答、過去の提示例、設定レベル${st.sendContext ? "、前後の文脈" : ""}が運営サーバーを経由してAnthropic社のClaude APIへ一時送信されます。このデータが運営サーバーに残ることはありません。`),
+      note(`採点やお手本の作成にあたり、ユーザーの発言や回答、過去の提示例、設定レベル${st.sendContext ? "、前後の文脈" : ""}が、読み上げの音声の作成にあたり、お手本などの英文が、運営サーバーを経由してOpenAI社のAPIへ一時送信されます。このデータが運営サーバーに残ることはありません。`),
+      note("読み上げの音声はAIによる合成音声です。作成した音声はお使いの端末内に保存し、繰り返し使います。"),
       h("h3", { class: "data-h" }, "AI出力に関する注意事項"),
       note("AIによる模範解答や採点結果は誤りを含む場合があります。あくまで参考情報としてご利用ください。"),
       hasConsent()
@@ -1546,8 +1571,7 @@ async function boot() {
   render();
   setTimeout(() => { fitModel(false); S.plan = null; if (S.view === "home") render(); }, 300);
 }
-if (typeof window !== "undefined" && window.__TK_TEST) window.__tk = { S, CAL, Cloud, render, go, handleBack, onShared, replayAll, fitModel, makePlan, pickFresh, flushAll, levelOf, dueOf, rNow, DAY, startOfDay, newCard, step, indexPool };
-TTS.init();
+if (typeof window !== "undefined" && window.__TK_TEST) window.__tk = { S, CAL, Cloud, TTS, wipeThisDevice, render, go, handleBack, onShared, replayAll, fitModel, makePlan, pickFresh, flushAll, levelOf, dueOf, rNow, DAY, startOfDay, newCard, step, indexPool };
 onBackButton(handleBack);
 boot();
 if (!isNative() && "serviceWorker" in navigator && /^https?:$/.test(location.protocol) && !/localhost|127\.0\.0\.1/.test(location.hostname)) navigator.serviceWorker.register("sw.js").catch(() => {});

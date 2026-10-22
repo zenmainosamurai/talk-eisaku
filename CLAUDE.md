@@ -16,12 +16,13 @@
 | `src/main.js` | アプリ本体。画面、トーク履歴の読み込み、出題、記憶モデル、カレンダー |
 | `src/cloud.js` | Supabase との連携。ログイン、暗号化した学習記録の同期、AIコーチの呼び出し |
 | `src/vault.js` | 学習記録の暗号化（復元キー、鍵の導出、暗号化・復号、鍵付きハッシュID） |
-| `src/native.js` | 音声入力・読み上げ・戻るボタン・共有の受け取り。スマホ版は Capacitor プラグイン、Web版はブラウザの機能 |
+| `src/native.js` | 音声入力・読み上げの音声の再生・戻るボタン・共有の受け取り。音声入力はスマホ版が Capacitor プラグイン、Web版がブラウザの機能 |
 | `src/store.js` | 端末内の保存（IndexedDB と localStorage） |
 | `android/` | Android アプリのプロジェクト（Capacitor が作成）。Web版の変更は `npm run android` で反映する |
 | `scripts/make_android_icons.py` | `public/` のアイコンから Android のアイコンと起動画面のアイコンを作る（Python と Pillow が必要） |
 | `supabase/migrations/` | データベース（vault_keys、vault_items、subscriptions、usage_daily） |
-| `supabase/functions/coach/` | AIコーチの Edge Function。指示文は `prompts.ts` |
+| `supabase/functions/coach/` | AIコーチの Edge Function（OpenAI の Responses API に中継）。指示文は `prompts.ts` |
+| `supabase/functions/tts/` | 読み上げの Edge Function。英文を OpenAI で音声（mp3）にして返す |
 | `supabase/functions/delete-account/` | アカウントの削除の Edge Function。auth のユーザーを消し、関連する行は `on delete cascade` で消える |
 | `test/` | Supabase と Capacitor を偽物に置き換えた、ネット不要のテスト用ページ |
 
@@ -31,7 +32,7 @@
 - `npm run build`：Web版を `dist/` に作る
 - `npm run android` / `npm run ios`：ビルドして Android Studio / Xcode を開く
 - `npx supabase db push`：データベースの変更を反映
-- `npx supabase functions deploy coach`：指示文や Edge Function の変更を反映
+- `npx supabase functions deploy coach`（読み上げは `tts`）：指示文や Edge Function の変更を反映
 - `npx supabase functions deploy delete-account`：アカウントの削除の Edge Function の変更を反映
 
 ## 変えてはいけない方針
@@ -41,19 +42,21 @@
 - トーク履歴（相手の発言を含む）は端末にだけ保存し、サーバーには保存しない。
 - 学習記録と回答履歴は、端末で暗号化してからサーバーに保存する。鍵は利用者の復元キーから作り、運営者は持たない。サーバーに置くのは暗号文と、鍵付きハッシュで作ったID（`blindId`）だけ。
 - サーバーに送る学習記録には、`src`・`mi`・`ctx`・`cn`（トーク履歴の中の位置や相手の発言）を入れない。送る項目は `CARD_FIELDS` で決めている。
-- AIに送るのは、問題文、利用者の回答、前回のお手本、英語レベル、前後のやり取り（前3件・後ろ2件、同じ日のもの）だけ。話し手は `Me`・`Friend`・`Friend B` などに置き換え、名前は送らない。前後のやり取りは設定でオフにできる。
+- AIは OpenAI を使う（2026年10月に Anthropic の Claude から替えた）。お手本づくりと採点は `gpt-6-luna`（`COACH_MODEL`）、読み上げは `gpt-audio-1.5` の声 `marin`（`TTS_MODEL`・`TTS_VOICE`）。OpenAI には `store: false` で送り、保存させない。
+- AIに送るのは、問題文、利用者の回答、前回のお手本、英語レベル、前後のやり取り（前3件・後ろ2件、同じ日のもの）、読み上げる英文だけ。話し手は `Me`・`Friend`・`Friend B` などに置き換え、名前は送らない。前後のやり取りは設定でオフにできる。
 - 本文中の名前や電話番号などを伏せる処理はしない（利用者が決めた仕様）。
 - Edge Function は会話の本文をログに出さず、保存もしない。`console.error` に出すのはエラーの種類だけ。
-- Claude が「問題にしない」と判定した発言は記録しない。アプリを開いている間だけメモリで覚え、同じ発言を続けて引かないようにする。
-- Anthropic の APIキーは Supabase の Secrets にだけ置く。アプリには入れない。
+- AIが「問題にしない」と判定した発言は記録しない。アプリを開いている間だけメモリで覚え、同じ発言を続けて引かないようにする。
+- OpenAI の APIキー（`OPENAI_API_KEY`）は Supabase の Secrets にだけ置く。アプリには入れない。
 - AIへの送信は、同意画面（`viewConsent()`）で同意を得てから行う。同意画面は初めて「はじめる」を押したときに出し、同意前は先読みも含めて一切送らない（`teach()`・`grade()` でも確かめる）。同意しなければホームに戻る。
-- 同意はこの端末にだけ保存し（`tk.aiConsent.v1`）、サーバーには送らない。設定の「データの取り扱いについて」で取り消せる。同意画面の文案を大きく変えたら `CONSENT_VERSION` を上げて、同意を取り直す。
-- アカウントの削除は、設定の「アカウント」から確認画面に進み、「元に戻せないことを理解しました」にチェックしてから行う。サーバーのアカウントと記録をすべて消し（`delete-account`）、成功したらこの端末のデータ（トーク履歴・学習記録・設定・AIへの同意）もすべて消して最初の画面に戻る。失敗したときは何も消さない。サブスクは自動では解約されないことを画面で案内する。
+- 同意はこの端末にだけ保存し（`tk.aiConsent.v1`）、サーバーには送らない。設定の「データの取り扱いについて」で取り消せる。同意画面の文案を大きく変えたら `CONSENT_VERSION` を上げて、同意を取り直す（送り先を OpenAI に替えたときに 2 にした）。
+- 読み上げの音声は、端末の IndexedDB（`talk-eisaku-audio`、500件まで、古いものから消す）にだけ保存し、同じ英文はもう作らない。作るときはログインとAIへの送信の同意が必要（設定の「試しに聞く」の決まった英文だけは同意の前でも作れる）。端末の読み上げ機能は使わない（音質が悪いため。利用者の判断）。OpenAI の規約に沿い、読み上げの声がAIの合成音声であることを同意画面と「データの取り扱いについて」に書く。
+- アカウントの削除は、設定の「アカウント」から確認画面に進み、「元に戻せないことを理解しました」にチェックしてから行う。サーバーのアカウントと記録をすべて消し（`delete-account`）、成功したらこの端末のデータ（トーク履歴・学習記録・設定・AIへの同意・読み上げの音声）もすべて消して最初の画面に戻る。失敗したときは何も消さない。サブスクは自動では解約されないことを画面で案内する。
 
 ### 出題と採点
 
 - 新しい表現は、まずお手本を見せる。利用者が「覚えた」を押したら学習済みにし、記憶モデルが見積もった時期に初めて出題する。
-- 新しい表現を出すとき、Claude が英語レベル（初級・中級・上級）を基準に「問題にする意味があるか」を判定する。意味がなければ、何も表示せずに代わりの問題を出す。
+- 新しい表現を出すとき、AIが英語レベル（初級・中級・上級）を基準に「問題にする意味があるか」を判定する。意味がなければ、何も表示せずに代わりの問題を出す。
 - 文字数での足切りはしない。読み込み時に除くのは、スタンプ・写真・URLだけの発言、システムメッセージ、80文字を超える発言、4行以上の発言、日本語の割合が6割未満の発言だけ。
 - 判定は「意味が伝わったか」だけで決める。文法の誤りでは不正解にしない（correct・close・wrong の3段階）。
 - 「ネイティブならこう言う」の提案で言う自然さは、ネイティブが好んで使うかどうか。文法の正しさではない。すでに自然なら提案しない。
@@ -97,14 +100,16 @@
 - 開発用のプロジェクトは `talk-eisaku-tokyo`（東京リージョン）。アプリの接続先は `.env`（リポジトリに入れない）に書く。最初に作ったシンガポールリージョンの `talk-eisaku` は使わない。
 - ログインのメールは Resend の SMTP で送る。送信元は開発用の `onboarding@resend.dev` で、Resend に登録したメールアドレスにしか届かない。
 - メールの本文（「Confirm sign up」と「Magic link or OTP」）は、件名「トーク英作のログインコード」、本文に6桁のコード（`{{ .Token }}`）を載せたもの。Supabase 標準のメール送信のままでは本文を編集できない。
-- 2026年10月23日に、エミュレーターでトーク履歴の読み込み・ログイン・復元キー・同意画面・お手本の表示まで通ることを確かめた。同じ日に Android の実機でも、音声入力・読み上げを含めて正しく動くことを確かめた（iPhone はまだ）。
+- 2026年10月23日に、エミュレーターでトーク履歴の読み込み・ログイン・復元キー・同意画面・お手本の表示まで通ることを確かめた。同じ日に Android の実機でも、音声入力・読み上げを含めて正しく動くことを確かめた（iPhone はまだ）。OpenAI への切り替え後は、実機での確認がまだ。
+- Edge Function の Secrets：`OPENAI_API_KEY`（利用者が登録する）、`DAILY_LIMIT`、`REQUIRE_SUBSCRIPTION`。任意で `COACH_MODEL`（既定 `gpt-6-luna`）、`COACH_EFFORT`（既定 `low`）、`TTS_MODEL`（既定 `gpt-audio-1.5`）、`TTS_VOICE`（既定 `marin`）。読み上げも AIコーチと同じ1日の回数に数える。
+- OpenAI の読み上げ用の API（`/v1/audio/speech` の `tts-1`・`gpt-4o-mini-tts`）は 2027年1月6日に終わるため使わず、Chat Completions の `gpt-audio-1.5` で英文を読ませている。読み違えを防ぐため、返ってきた文字起こしと英文を比べ、違えば1回だけ作り直す。
 
 ## まだできていないこと
 
 - 公開前に独自ドメインを取り、Resend でドメインを認証して、メールの送信元をそのドメインのアドレスに変える。
 - RevenueCat でのサブスク課金。連携するまでは Edge Function の `REQUIRE_SUBSCRIPTION=false` のままにし、ログインした人は誰でも1日 `DAILY_LIMIT` 回まで使える。
 - Google・Apple でのログイン。Apple でのログインを入れるときは、アカウントの削除のときに Apple のトークンの取り消し（revoke）も行う。
-- 免責事項の文案の更新。学習記録を暗号化してサーバーに保存するようになったこと、問題にしないと判定された発言も判定のために送ること、AIに送る前の同意画面を設けたこと（同意はこの端末にだけ保存し、設定で取り消せる）を反映する。
+- 免責事項の文案の更新。学習記録を暗号化してサーバーに保存するようになったこと、問題にしないと判定された発言も判定のために送ること、AIに送る前の同意画面を設けたこと（同意はこの端末にだけ保存し、設定で取り消せる）、AIの送り先を OpenAI社に替えたこと、読み上げの声がAIの合成音声で、音声を端末に保存することを反映する。
 - iPhone で共有先に「トーク英作」を出す（共有用の拡張機能 Share Extension と App Group が必要。Mac で作業する）。
 - Xcode でのビルドの確認。Web版は `npm run build` が通ること、Android版は Android Studio でビルドしてエミュレーターで起動することを確かめた（2026年10月22日）。版の組み合わせは `package-lock.json` で固定している。
 - `capacitor.config.json` の `appId`（`jp.talkeisaku.app` は仮）。変えるときは `android/` の中（`build.gradle` の `namespace`・`applicationId`、`strings.xml`、`MainActivity.java` と `ShareReceiverPlugin.java` の置き場所とパッケージ）も合わせて直す。

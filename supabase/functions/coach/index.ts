@@ -1,10 +1,11 @@
-// AIコーチ：アプリからの依頼を受け、ログイン・サブスク・1日の上限を確かめてから Claude API に中継する
-// 重要：会話の本文（発言・回答・文脈）はログに出さず、どこにも保存しない。エラーはコードだけを記録する
+// AIコーチ：アプリからの依頼を受け、ログイン・サブスク・1日の上限を確かめてから OpenAI API に中継する
+// 重要：会話の本文（発言・回答・文脈）はログに出さず、どこにも保存しない（OpenAI 側にも store=false で保存させない）。エラーはコードだけを記録する
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { buildGradePrompt, buildTeachPrompt, parseJson, type CoachRequest } from "./prompts.ts";
 
-const ANTHROPIC_API_KEY = Deno.env.get("ANTHROPIC_API_KEY") ?? "";
-const MODEL = Deno.env.get("COACH_MODEL") ?? "claude-haiku-5-5";
+const OPENAI_API_KEY = Deno.env.get("OPENAI_API_KEY") ?? "";
+const MODEL = Deno.env.get("COACH_MODEL") ?? "gpt-6-luna";
+const EFFORT = Deno.env.get("COACH_EFFORT") ?? "low"; // 考える量：none / low / medium / high
 const DAILY_LIMIT = Number(Deno.env.get("DAILY_LIMIT") ?? "300");
 const REQUIRE_SUBSCRIPTION = (Deno.env.get("REQUIRE_SUBSCRIPTION") ?? "false") === "true";
 // サーバー用の鍵：新しい形式の secret key（SUPABASE_SECRET_KEYS の default）を使い、なければ従来の service_role key を使う
@@ -28,7 +29,7 @@ const reply = (status: number, body: unknown) => new Response(JSON.stringify(bod
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
   if (req.method !== "POST") return reply(405, { error: "method_not_allowed" });
-  if (!ANTHROPIC_API_KEY) return reply(500, { error: "unconfigured" });
+  if (!OPENAI_API_KEY) return reply(500, { error: "unconfigured" });
 
   // 1) ログインの確認
   const token = (req.headers.get("Authorization") ?? "").replace(/^Bearer\s+/i, "");
@@ -45,10 +46,10 @@ Deno.serve(async (req) => {
   // 3) 依頼の中身を確認して、指示文をサーバー側で組み立てる（任意の指示文は受け付けない）
   let body: CoachRequest;
   try { body = await req.json(); } catch { return reply(400, { error: "bad_request" }); }
-  let prompt: string | null = null, maxTokens = 2000;
+  let prompt: string | null = null, maxTokens = 4000; // 考える分の量も含む
   if (body?.kind === "teach" && body.ja) prompt = buildTeachPrompt(body);
   else if (body?.kind === "grade" && body.ja) prompt = buildGradePrompt(body);
-  else if (body?.kind === "ping") { prompt = 'Reply with only this JSON: {"ok":true}'; maxTokens = 200; }
+  else if (body?.kind === "ping") { prompt = 'Reply with only this JSON: {"ok":true}'; maxTokens = 500; }
   if (!prompt) return reply(400, { error: "bad_request" });
 
   // 4) 1日の上限
@@ -56,27 +57,30 @@ Deno.serve(async (req) => {
   if (usageError) { console.error("usage_error", usageError.code); return reply(500, { error: "upstream_error" }); }
   if (!allowed) return reply(429, { error: "daily_limit" });
 
-  // 5) Claude API へ中継
+  // 5) OpenAI API（Responses API）へ中継
   let res: Response;
   try {
-    res = await fetch("https://api.anthropic.com/v1/messages", {
+    res = await fetch("https://api.openai.com/v1/responses", {
       method: "POST",
-      headers: { "content-type": "application/json", "x-api-key": ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01" },
-      body: JSON.stringify({ model: MODEL, max_tokens: maxTokens, output_config: { effort: "low" }, messages: [{ role: "user", content: prompt }] })
+      headers: { "content-type": "application/json", "authorization": `Bearer ${OPENAI_API_KEY}` },
+      body: JSON.stringify({ model: MODEL, input: prompt, reasoning: { effort: EFFORT }, max_output_tokens: maxTokens, store: false })
     });
   } catch {
     return reply(502, { error: "network" });
   }
   const data = await res.json().catch(() => null);
   if (!res.ok) {
-    const type = data?.error?.type ?? "";
-    console.error("anthropic_error", res.status, type);
-    if (res.status === 429 || res.status === 529 || type === "overloaded_error") return reply(503, { error: "overloaded" });
+    const code = data?.error?.code ?? data?.error?.type ?? "";
+    console.error("openai_error", res.status, code);
+    if (code === "insufficient_quota") return reply(502, { error: "upstream_error" });
+    if (res.status === 429 || res.status >= 500) return reply(503, { error: "overloaded" });
     return reply(502, { error: "upstream_error" });
   }
-  if (data?.stop_reason === "refusal") return reply(422, { error: "refused" });
-  const text = (data?.content ?? []).filter((b: { type: string }) => b.type === "text").map((b: { text: string }) => b.text).join("");
+  // deno-lint-ignore no-explicit-any
+  const parts: any[] = (data?.output ?? []).filter((o: { type: string }) => o.type === "message").flatMap((o: { content?: unknown[] }) => o.content ?? []);
+  if (parts.some(p => p?.type === "refusal") || data?.incomplete_details?.reason === "content_filter") return reply(422, { error: "refused" });
+  const text = parts.filter(p => p?.type === "output_text").map(p => String(p.text ?? "")).join("");
   const parsed = parseJson(text);
-  if (!parsed) return reply(502, { error: "invalid_json" });
+  if (!parsed) { console.error("invalid_json", data?.status ?? "", data?.incomplete_details?.reason ?? ""); return reply(502, { error: "invalid_json" }); }
   return reply(200, { data: parsed });
 });

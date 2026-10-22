@@ -9,21 +9,22 @@
 | アプリ本体 | Vite + Capacitor | `src/`。Web版とスマホアプリ版で共通 |
 | ログイン | Supabase Auth | メールに届く6桁のコードでログイン |
 | 学習記録の同期 | Supabase Database | 端末で暗号化した学習記録だけを保存（`supabase/migrations/`） |
-| AIコーチ | Supabase Edge Functions | ログイン・1日の上限を確認して Claude API に中継（`supabase/functions/coach/`） |
+| AIコーチ | Supabase Edge Functions | ログイン・1日の上限を確認して OpenAI API に中継（`supabase/functions/coach/`） |
+| 読み上げ | Supabase Edge Functions | 英文を OpenAI で音声にして返す。アプリは音声を端末に保存して使い回す（`supabase/functions/tts/`） |
 | アカウントの削除 | Supabase Edge Functions | ログイン中の本人のアカウントと、サーバー上の記録をすべて消す（`supabase/functions/delete-account/`） |
 
 ### データの流れ
 
 - **トーク履歴**：端末の中だけに保存し、サーバーには送りません。
 - **学習記録・回答履歴**：端末で暗号化してからサーバーに保存します。鍵は「復元キー」から作り、運営者は保管しません。
-- **AIへの依頼**：問題文・回答・前後のやり取り（話し手は Me / Friend に置き換え、名前は送らない）を Edge Function に送ります。Edge Function はそれを保存もログ出力もせずに Claude API に中継します。
+- **AIへの依頼**：問題文・回答・前後のやり取り（話し手は Me / Friend に置き換え、名前は送らない）を Edge Function に送ります。Edge Function はそれを保存もログ出力もせずに OpenAI API に中継します（OpenAI 側にも `store: false` で保存させません）。読み上げでは、お手本などの英文だけを送ります。
 - **指示文（プロンプト）**：サーバー側の `supabase/functions/coach/prompts.ts` にあります。アプリを更新しなくても、ここを直してデプロイすれば変えられます。
 
 ## 必要なもの
 
 - Node.js 20 以上
 - Supabase のアカウント
-- Anthropic の APIキー（Claude Console で作成）
+- OpenAI の APIキー（OpenAI Platform で作成）
 - Androidアプリを作る場合：Android Studio
 - iPhoneアプリを作る場合：Mac と Xcode、Apple Developer Program
 
@@ -39,8 +40,9 @@
    npx supabase login
    npx supabase link --project-ref <project-ref>
    npx supabase db push
-   npx supabase secrets set ANTHROPIC_API_KEY=sk-ant-... DAILY_LIMIT=300 REQUIRE_SUBSCRIPTION=false
+   npx supabase secrets set OPENAI_API_KEY=sk-... DAILY_LIMIT=300 REQUIRE_SUBSCRIPTION=false
    npx supabase functions deploy coach
+   npx supabase functions deploy tts
    npx supabase functions deploy delete-account
    ```
 

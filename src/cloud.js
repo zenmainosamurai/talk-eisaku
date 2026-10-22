@@ -226,12 +226,25 @@ export const Cloud = {
     if (!this.user) throw { code: "not_signed_in" };
     if (typeof navigator !== "undefined" && navigator.onLine === false) throw { code: "offline" };
     const { data, error } = await this.sb.functions.invoke("coach", { body });
-    if (error) {
-      let code = "network";
-      try { if (error.context && typeof error.context.json === "function") code = (await error.context.json()).error || "upstream_error"; } catch {}
-      throw { code };
-    }
+    if (error) throw { code: await errorCode(error) };
     if (!data || !data.data) throw { code: "invalid_json" };
     return data.data;
+  },
+
+  // ---- 読み上げ：英文を OpenAI で音声（mp3）にして、ArrayBuffer で返す ----
+  async tts(text) {
+    if (!this.configured()) throw { code: "unconfigured" };
+    if (!this.user) throw { code: "not_signed_in" };
+    if (typeof navigator !== "undefined" && navigator.onLine === false) throw { code: "offline" };
+    const { data, error } = await this.sb.functions.invoke("tts", { body: { text } });
+    if (error) throw { code: await errorCode(error) };
+    if (!(data instanceof Blob) || !data.size) throw { code: "upstream_error" };
+    return await data.arrayBuffer();
   }
 };
+
+// Edge Function のエラーから、サーバーが返したコードを取り出す
+async function errorCode(error) {
+  try { if (error.context && typeof error.context.json === "function") return (await error.context.json()).error || "upstream_error"; } catch {}
+  return "network";
+}
