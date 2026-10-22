@@ -164,6 +164,8 @@ select, .text-in { width: 100%; min-height: 48px; padding: 0 12px; border-radius
 input[type="range"] { width: 100%; accent-color: var(--me); }
 .danger, .btn.danger { color: var(--ng); }
 .btn.primary.danger { background: var(--ng); color: var(--on-me); }
+.data-h { margin: 14px 0 4px; font-size: .9375rem; font-weight: 700; color: var(--ink); }
+section h2 + .data-h { margin-top: 0; }
 .talk-list { display: flex; flex-direction: column; gap: 8px; margin: 0 0 12px; }
 .talk-item { padding: 12px 14px; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); }
 .talk-item .talk-name { font-weight: 700; }

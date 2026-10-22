@@ -1234,7 +1234,7 @@ function viewConsent() {
       h("p", { class: "banner" }, AI_NOTE + "お手本や判定は参考としてお使いください。")),
     h("div", { style: "padding:8px 0 28px" },
       hasConsent()
-        ? [h("p", { class: "note", style: "margin:0 0 12px" }, `${fmtYMD(S.aiConsent.at)}に同意しています。取り消すときは、設定の「データの扱い」から取り消せます。`),
+        ? [h("p", { class: "note", style: "margin:0 0 12px" }, `${fmtYMD(S.aiConsent.at)}に同意しています。取り消すときは、設定の「データの取り扱いについて」から取り消せます。`),
            h("button", { class: "btn ghost block", type: "button", onclick: back }, "戻る")]
         : h("div", { class: "btn-row", style: "margin-top:0" },
             h("button", { class: "btn ghost", type: "button", onclick: decline }, "同意しない"),
@@ -1402,7 +1402,7 @@ function viewSettings() {
       h("div", { class: "seg" }, Object.entries(LEVELS).map(([k, v]) => h("button", { class: "plain", type: "button", "aria-pressed": String(levelKey() === k),
         onclick: () => { st.level = k; persistSettings(); skippedNow.clear(); S.plan = null; render(); } }, v.name))),
       h("p", { class: "note", style: "margin:8px 0 0" }, "トーク履歴の中からあなたのレベルに合ったものを出題します。")),
-    h("section", null, h("h2", null, "1日の出題数"), h("div", { class: "seg" }, [5, 10, 20, 30].map(segBtn))),
+    h("section", null, h("h2", null, "1日の作問数"), h("div", { class: "seg" }, [5, 10, 20, 30].map(segBtn))),
     h("section", null,
       h("div", { class: "row-set" }, h("h2", { style: "margin:0" }, "読み上げの速さ"), rateLbl),
       h("input", { type: "range", min: "0.6", max: "1.2", step: "0.05", value: String(st.rate), "aria-label": "読み上げの速さ",
@@ -1424,11 +1424,16 @@ function viewSettings() {
             ? "送信先の一覧から「トーク英作」を選びます。"
             : "送信先の一覧から、この端末に保存する方法（「ファイルに保存」など）を選び、上の「トーク履歴を追加・読み込み直す」でそのファイルを選びます。")),
         h("a", { href: LINE_EXPORT_HELP, target: "_blank", rel: "noopener" }, "くわしい手順（LINE公式ヘルプ）"))),
-    h("section", null, h("h2", null, "データの扱い"),
-      note("トーク履歴は、この端末にだけ保存され、サーバーには保存しません。"),
-      note("学習記録と回答履歴は、この端末で暗号化してからサーバーに保存します。運営者は中身を読めません。復元キーをなくすと、運営者にも記録を戻せません。"),
-      note(`お手本や採点を作るときは、問題文（あなたの発言。問題にしないと判断された発言も含みます）・あなたの回答・前に表示したお手本・英語のレベル${st.sendContext ? "・前後のやり取り" : ""}が、運営者のサーバーを経由してAnthropic社のClaude APIに送られます。運営者のサーバーには保存しません。`),
-      note(AI_NOTE + "お手本や判定は参考としてお使いください。"),
+    h("section", null, h("h2", null, "データの取り扱いについて"),
+      h("h3", { class: "data-h" }, "トーク履歴の保管"),
+      note("トーク履歴はお使いの端末内のみに保存され、サーバーには送信・保管されません。"),
+      h("h3", { class: "data-h" }, "学習・回答履歴の暗号化"),
+      note("学習・回答データは端末側で暗号化した上でサーバーに保存されます。運営者であっても内容は閲覧できません。なお、復元キーを紛失された場合、運営側からデータを復元することはできませんのでご注意ください。"),
+      h("h3", { class: "data-h" }, "外部AI（Claude API）との連携"),
+      // 前後の文脈は、設定でオフにしているときは送らないので、文面からも外す
+      note(`採点やお手本の作成にあたり、ユーザーの発言や回答、過去の提示例、設定レベル${st.sendContext ? "、前後の文脈" : ""}が運営サーバーを経由してAnthropic社のClaude APIへ一時送信されます。このデータが運営サーバーに残ることはありません。`),
+      h("h3", { class: "data-h" }, "AI出力に関する注意事項"),
+      note("AIによる模範解答や採点結果は誤りを含む場合があります。あくまで参考情報としてご利用ください。"),
       hasConsent()
         ? [note(`AIへの送信に同意しています（${fmtYMD(S.aiConsent.at)}）。`, true),
            h("div", { class: "btn-row" },
