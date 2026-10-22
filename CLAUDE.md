@@ -74,6 +74,8 @@
 - ホームは「今日の問題」とカレンダー。カレンダーは月・週・日の表示を切り替えられ、ピンチで拡大縮小、横スワイプで移動、日付のダブルタップで日表示に移る。
 - カレンダーのドットは、その日に出題した問題1つにつき1つ。色はその問題の今の定着度で、空のリングは復習予定。
 - 英文のアポストロフィは ’ で表示する。
+- トーク履歴の書き出し方の詳しい説明はアプリに載せず、LINE 公式ヘルプ（テキストでトーク履歴をバックアップする）にリンクする。LINE の画面の画像は使わない。はじめての画面では、端末に保存するよう案内し、相手の発言も含むのでほかの人に送らないよう注意する。
+- Android では、LINE の「トーク履歴を送信」の共有先に「トーク英作」が出る。受け取りはアプリの中のプラグイン `ShareReceiverPlugin`（`android/app/src/main/java/jp/talkeisaku/app/`）で、受け取った内容は端末の中だけで扱い、読み込みの確認画面に進む。
 - Android の戻るボタンは、各画面の「戻る」と同じ動きをする（`handleBack()`）。ホーム・はじめての画面・復元キーの作成中はアプリを閉じずに裏に回す。問題の途中では「問題を終了しますか？」と確認してから終了する。音声入力中は先に音声入力だけを止める。
 - AIの吹き出しの名前は「AIコーチ」。お手本と採点の吹き出しの下に「AIの回答は誤ることがあります。」を小さく出す（同意画面と設定の「データの扱い」にも書く）。
 
@@ -97,8 +99,9 @@
 - RevenueCat でのサブスク課金。連携するまでは Edge Function の `REQUIRE_SUBSCRIPTION=false` のままにし、ログインした人は誰でも1日 `DAILY_LIMIT` 回まで使える。
 - Google・Apple でのログイン。Apple でのログインを入れるときは、アカウントの削除のときに Apple のトークンの取り消し（revoke）も行う。
 - 免責事項の文案の更新。学習記録を暗号化してサーバーに保存するようになったこと、問題にしないと判定された発言も判定のために送ること、AIに送る前の同意画面を設けたこと（同意はこの端末にだけ保存し、設定で取り消せる）を反映する。
+- iPhone で共有先に「トーク英作」を出す（共有用の拡張機能 Share Extension と App Group が必要。Mac で作業する）。
 - Xcode でのビルドの確認。Web版は `npm run build` が通ること、Android版は Android Studio でビルドしてエミュレーターで起動することを確かめた（2026年10月22日）。版の組み合わせは `package-lock.json` で固定している。
-- `capacitor.config.json` の `appId`（`jp.talkeisaku.app` は仮）。変えるときは `android/` の中（`build.gradle` の `namespace`・`applicationId`、`strings.xml`、`MainActivity.java` のパッケージ）も合わせて直す。
+- `capacitor.config.json` の `appId`（`jp.talkeisaku.app` は仮）。変えるときは `android/` の中（`build.gradle` の `namespace`・`applicationId`、`strings.xml`、`MainActivity.java` と `ShareReceiverPlugin.java` の置き場所とパッケージ）も合わせて直す。
 
 ## 作業のルール
 

@@ -68,6 +68,8 @@ npm run android
 
 Android Studio が開くので、実機かエミュレーターで実行します。初めて開いたときに Gradle が使う Java（Gradle JVM）を聞かれたら、JDK 21 を選びます。
 
+LINE の「トーク履歴を送信」の共有先に「トーク英作」が出ます（受け取りは `android/app/src/main/java/jp/talkeisaku/app/ShareReceiverPlugin.java`）。iPhone はまだ対応していません。
+
 アプリのアイコンと起動画面のアイコンは、`public/icon-512.png` と `public/icon-maskable-512.png` から作っています。アイコンを変えたら `python3 scripts/make_android_icons.py`（Pillow が必要）で作り直します。
 
 ### iPhone（Mac が必要）

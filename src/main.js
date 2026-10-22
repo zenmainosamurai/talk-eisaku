@@ -1,7 +1,7 @@
 // トーク英作：アプリ本体（Web版とスマホアプリ版で共通）
 import { LS, Store } from "./store.js";
 import { Cloud } from "./cloud.js";
-import { Voice, Speech, isNative, saveTextFile, onBackButton } from "./native.js";
+import { Voice, Speech, isNative, saveTextFile, onBackButton, onSharedText, shareTargetSupported } from "./native.js";
 
 /* ============ 基本ユーティリティ ============ */
 const DAY = 86400000;
@@ -714,10 +714,15 @@ function viewSetup() {
         h("p", null, "あなたが実際にLINEで送ったメッセージが、英作文の問題になります。")),
       h("section", { style: "border-top:0" },
         h("ol", { class: "steps" },
-          h("li", null, "LINEで練習に使いたいトークを開き、右上のメニュー → 設定 → 「トーク履歴を送信」で、.txtファイルを端末に保存します。"),
-          h("li", null, "下のボタンから、そのファイルを選びます。読み込んだ内容はこの端末にだけ保存されます。"),
+          h("li", null, "LINEで練習に使いたいトークを開き、右上のメニュー → 設定 → 「トーク履歴を送信」を選びます。"),
+          h("li", null, shareTargetSupported()
+            ? "送信先の一覧から「トーク英作」を選ぶと、そのまま読み込めます。一覧にないときは、端末に保存（「ファイルに保存」など。機種によって名前が違います）してから、下のボタンでそのファイルを選びます。"
+            : "送信先の一覧から、この端末に保存する方法（「ファイルに保存」など。機種によって名前が違います）を選び、下のボタンでそのファイルを選びます。",
+            "トーク履歴には相手の発言も含まれるので、ほかの人には送らないでください。読み込んだ内容はこの端末にだけ保存されます。"),
           h("li", null, "まず英語のお手本を見て「覚えた」を押します。忘れかけた頃に英語で答える問題として出題され、あなたの回答に合わせて出題のタイミングが調整されます。")),
-        fileBtn("トーク履歴を選ぶ")));
+        fileBtn("トーク履歴を選ぶ"),
+        h("p", { class: "note", style: "margin:12px 0 0" },
+          h("a", { href: LINE_EXPORT_HELP, target: "_blank", rel: "noopener" }, "くわしい手順（LINE公式ヘルプ）"))));
   }
   const speakers = Object.entries(st.parsed.speakers).sort((a, b) => b[1] - a[1]);
   const items = buildItems(st.parsed.msgs, st.me, "preview");
@@ -745,16 +750,28 @@ function viewSetup() {
         go("home");
       } }, "この内容で始める")));
 }
+const LINE_EXPORT_HELP = "https://help.line.me/line/smartphone?lang=ja&contentId=20007388";
+// トーク履歴の文字列を読み取り、読み込みの確認画面を出す（ファイルを選んだときと、共有で届いたときの両方で使う）
+function loadTalkText(text, name) {
+  const parsed = parseLineExport(text);
+  const names = Object.keys(parsed.speakers);
+  if (!parsed.msgs.length || !names.length) { toast("LINEのトーク履歴として読み取れませんでした。「トーク履歴を送信」で作ったファイルを選んでください。", 6500); return; }
+  const guess = Object.entries(parsed.speakers).filter(([n]) => n !== parsed.partner).sort((a, b) => b[1] - a[1])[0];
+  stopListening(); closeConfirm();
+  S.setup = { parsed, me: guess ? guess[0] : names[0], name: name || "トーク履歴" };
+  S.view = "setup"; render(); window.scrollTo(0, 0);
+}
 async function onFile(file) {
   if (!file) return;
-  try {
-    const parsed = parseLineExport(await file.text());
-    const names = Object.keys(parsed.speakers);
-    if (!parsed.msgs.length || !names.length) { toast("LINEのトーク履歴として読み取れませんでした。「トーク履歴を送信」で保存した.txtを選んでください。", 6500); return; }
-    const guess = Object.entries(parsed.speakers).filter(([n]) => n !== parsed.partner).sort((a, b) => b[1] - a[1])[0];
-    S.setup = { parsed, me: guess ? guess[0] : names[0], name: file.name };
-    S.view = "setup"; render(); window.scrollTo(0, 0);
-  } catch { toast("ファイルを読み込めませんでした。"); }
+  let text;
+  try { text = await file.text(); } catch { toast("ファイルを読み込めませんでした。"); return; }
+  loadTalkText(text, file.name);
+}
+// 共有で届いたトーク履歴。問題の途中なら、そこまでの回答を保存してから読み込みに移る
+function onShared(r) {
+  if (r.error) { toast(r.error === "too_large" ? "ファイルが大きすぎて読み込めませんでした。" : "共有されたファイルを読み込めませんでした。", 6000); return; }
+  if (S.view === "quiz" && S.session) quit();
+  loadTalkText(r.text, r.name);
 }
 
 /* --- ホーム --- */
@@ -1406,6 +1423,7 @@ function viewSettings() {
       h("p", { class: "note", style: "margin:10px 0 0" }, "カレンダーの定着度は、このモデルで計算した「1週間後にも思い出せる見込み」です。")),
     h("section", null, h("h2", null, "トーク履歴"),
       S.pool && S.pool.sources.length ? S.pool.sources.map(s => note(`${s.partner} とのトーク（${s.me}として、${(s.count || 0).toLocaleString()}問）` + (s.msgs ? "" : "：文脈なし"))) : note("読み込まれていません。"),
+      shareTargetSupported() ? note("LINEの「トーク履歴を送信」で「トーク英作」を選んでも追加できます。") : null,
       h("div", { style: "margin-top:10px" }, fileBtn),
       S.pool ? h("button", { class: "link danger", style: "padding-left:0;margin-top:6px", type: "button", onclick: () => { S.pool = null; indexPool(); savePool(); S.plan = null; toast("読み込んだトーク履歴を削除しました。学習記録は残っています。"); render(); } }, "読み込んだトーク履歴を削除する") : null),
     h("section", null, h("h2", null, "バックアップ"),
@@ -1573,11 +1591,12 @@ async function boot() {
     if (ok && migrated) { LS.del(K.oldPool); LS.del(K.oldCards); }
   }
   S.ready = true; render();
+  onSharedText(onShared);
   try { await Cloud.init(cloudHooks); } catch (e) { console.warn("cloud init failed"); }
   render();
   setTimeout(() => { fitModel(false); S.plan = null; if (S.view === "home") render(); }, 300);
 }
-if (typeof window !== "undefined" && window.__TK_TEST) window.__tk = { S, CAL, Cloud, render, go, handleBack, replayAll, fitModel, makePlan, pickFresh, flushAll, levelOf, dueOf, rNow, DAY, startOfDay, newCard, step, indexPool };
+if (typeof window !== "undefined" && window.__TK_TEST) window.__tk = { S, CAL, Cloud, render, go, handleBack, onShared, replayAll, fitModel, makePlan, pickFresh, flushAll, levelOf, dueOf, rNow, DAY, startOfDay, newCard, step, indexPool };
 TTS.init();
 onBackButton(handleBack);
 boot();

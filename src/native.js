@@ -1,6 +1,6 @@
 // スマホアプリ（Capacitor）ではネイティブの音声認識・読み上げ・共有を使い、Webではブラウザの機能を使う
 // AndroidのWebViewはブラウザの音声認識・読み上げに対応していないため、アプリではプラグインが必要
-import { Capacitor } from "@capacitor/core";
+import { Capacitor, registerPlugin } from "@capacitor/core";
 import { SpeechRecognition } from "@capacitor-community/speech-recognition";
 import { TextToSpeech } from "@capacitor-community/text-to-speech";
 import { Filesystem, Directory, Encoding } from "@capacitor/filesystem";
@@ -8,6 +8,23 @@ import { Share } from "@capacitor/share";
 import { App } from "@capacitor/app";
 
 export const isNative = () => Capacitor.isNativePlatform();
+
+// ---- 共有の受け取り（Android） ----
+// LINE の「トーク履歴を送信」などで「トーク英作」が選ばれたとき、届いたファイルの中身を handler に渡す
+// 中身は端末の中だけで扱う。iPhone は共有用の拡張機能がまだないため、対応していない
+const ShareReceiver = registerPlugin("ShareReceiver");
+export const shareTargetSupported = () => isNative() && Capacitor.getPlatform() === "android";
+export function onSharedText(handler) {
+  if (!shareTargetSupported()) return;
+  const take = async () => {
+    try {
+      const r = await ShareReceiver.takePending();
+      if (r && (r.text || r.error)) handler(r);
+    } catch {}
+  };
+  ShareReceiver.addListener("shared", take);
+  take();
+}
 
 // ---- Android の戻るボタン ----
 // handler() が false を返したとき（ホームなど最初の画面）は、アプリを閉じずに裏に回す
