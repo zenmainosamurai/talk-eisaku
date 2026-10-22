@@ -1,69 +1,114 @@
-# トーク英作（単体アプリ版）
+# トーク英作（Capacitor + Supabase 版）
 
-自分のLINEのトーク履歴を問題にして、英語で言う練習をするアプリです。お手本と採点は、あなた自身のClaude APIキーで直接Claudeに問い合わせます。
+自分のLINEのトーク履歴を問題にして、英語で言う練習をするアプリです。1つのコードから、Web版・Androidアプリ・iPhoneアプリを作ります。
 
-## 中身
+## 構成
 
-| ファイル | 役割 |
-| --- | --- |
-| index.html | アプリ本体 |
-| manifest.webmanifest | ホーム画面に追加するための設定 |
-| sw.js | オフラインでも起動できるようにする仕組み |
-| icon-192.png / icon-512.png / icon-maskable-512.png | アプリのアイコン |
+| 部分 | 使うもの | 中身 |
+| --- | --- | --- |
+| アプリ本体 | Vite + Capacitor | `src/`。Web版とスマホアプリ版で共通 |
+| ログイン | Supabase Auth | メールに届く6桁のコードでログイン |
+| 学習記録の同期 | Supabase Database | 端末で暗号化した学習記録だけを保存（`supabase/migrations/`） |
+| AIコーチ | Supabase Edge Functions | ログイン・1日の上限を確認して Claude API に中継（`supabase/functions/coach/`） |
 
-この中に、トーク履歴・APIキー・学習記録は含まれていません。
+### データの流れ
 
-## 1. APIキーを用意する
+- **トーク履歴**：端末の中だけに保存し、サーバーには送りません。
+- **学習記録・回答履歴**：端末で暗号化してからサーバーに保存します。鍵は「復元キー」から作り、運営者は保管しません。
+- **AIへの依頼**：問題文・回答・前後のやり取り（話し手は Me / Friend に置き換え、名前は送らない）を Edge Function に送ります。Edge Function はそれを保存もログ出力もせずに Claude API に中継します。
+- **指示文（プロンプト）**：サーバー側の `supabase/functions/coach/prompts.ts` にあります。アプリを更新しなくても、ここを直してデプロイすれば変えられます。
 
-1. [Claude Console](https://platform.claude.com/) にログインし、APIキーを作成します。
-2. APIの利用にはクレジット（利用料のチャージ）が必要です。
-3. 使いすぎを防ぐため、Consoleで利用額の上限を設定しておくと安心です。
+## 必要なもの
 
-料金の目安：初期設定のClaude Haiku 5.5なら、1問あたりの費用はごくわずかです（1,000問で数十円程度が目安。実際の金額はConsoleで確認してください）。設定で、より丁寧なClaude Sonnet 5.5に切り替えることもできます。
+- Node.js 20 以上
+- Supabase のアカウント
+- Anthropic の APIキー（Claude Console で作成）
+- Androidアプリを作る場合：Android Studio
+- iPhoneアプリを作る場合：Mac と Xcode、Apple Developer Program
 
-## 2. GitHub Pagesで公開する
+## 1. Supabase の準備
 
-1. GitHubのアカウントを作成します。
-2. 右上の「＋」→「New repository」で、名前（例：talk-eisaku）を付け、Publicで作成します。
-3. 「uploading an existing file」から、zipを展開したファイルをすべて選んでアップロードし、「Commit changes」を押します。
-4. リポジトリの「Settings」→「Pages」で、Branchを「main」「/ (root)」にして「Save」を押します。
-5. 数分後、`https://（ユーザー名）.github.io/talk-eisaku/` で開けるようになります。
+1. Supabase で新しいプロジェクトを作ります。リージョンは「Northeast Asia (Tokyo)」を選びます。
+2. 「Authentication」→「Sign In / Providers」で Email を有効にします。
+3. 「Authentication」→「Emails」で、Magic Link のメール本文に `{{ .Token }}` を入れます。これで6桁のコードがメールで届くようになります。
+4. このフォルダで次を実行します（`<project-ref>` はプロジェクトのURLの xxxxx 部分）。
 
-無料プランではリポジトリが公開になりますが、公開されるのはアプリのプログラムだけです。
+   ```bash
+   npx supabase login
+   npx supabase link --project-ref <project-ref>
+   npx supabase db push
+   npx supabase secrets set ANTHROPIC_API_KEY=sk-ant-... DAILY_LIMIT=300 REQUIRE_SUBSCRIPTION=false
+   npx supabase functions deploy coach
+   ```
 
-## 3. スマホにインストールする
+5. 公開する前に、「Authentication」→「Emails」で独自のSMTP（メール送信サービス）を設定します。Supabase標準のメール送信は回数の制限が厳しく、開発用です。
+6. 無料プランは7日間ほとんど使われないと一時停止します。公開するときは有料プランに切り替えてください。
 
-AndroidのChromeで上のURLを開き、右上の「︙」→「ホーム画面に追加」（または「アプリをインストール」）を選びます。
+## 2. アプリを動かす
 
-## 4. はじめての設定
+1. `.env.example` を `.env` にコピーし、Supabase の「Project Settings」→「API」にある URL と anon key を書きます。
+2. 依存パッケージを入れて、ブラウザで確認します。
 
-1. アプリの「設定」でAPIキーを入力し、「接続テスト」を押します。
-2. LINEのトーク画面 → メニュー → 設定 →「トーク履歴を送信」で.txtを保存し、アプリに読み込みます。
+   ```bash
+   npm install
+   npm run dev
+   ```
 
-## 出題のしくみ
+3. `capacitor.config.json` の `appId`（今は `jp.talkeisaku.app`）を、あなたのドメインを逆にした形に変えます。ストアに出したあとは変えられません。
 
-- 新しい表現を出題するとき、Claudeがお手本を作るのと同時に「問題にする意味があるか」を、設定の英語レベル（初級・中級・上級）に合わせて判定します。意味がないと判定された発言は、何も表示せずに飛ばして代わりの問題を出します。飛ばした発言は保存しません。
-- 各問題に「今思い出せる確率（定着率）」を持たせ、定着率が90%を下回った問題から、低い順に出題します（1回の上限は40問）。
-- 忘れ方の速さは、最初は標準的な値で計算し、回答が20件たまるとあなたの正解・不正解の履歴に合わせて自動で調整します。
-- 予測を確かめるため、定着率が高いと計算された問題も「確認」として少し混ぜます。予測より忘れている場合はこの割合が増え、予測が当たるようになると減ります。調整の状況は設定の「あなた向けの記憶モデル」で見られます。
-- ホームのカレンダーの色（定着度）は、このモデルで計算した「1週間後にも思い出せる見込み」です。復習しないまま時間がたつと薄くなり、復習して正解すると濃くなります。
+### Android
 
-## 前後の文脈を踏まえた翻訳
+```bash
+npx cap add android
+```
 
-設定の「前後のやり取りも踏まえて訳す」がオンのとき、対象の発言の前3件・後ろ2件（同じ日のやり取り）も、相手の発言を含めてClaudeに送ります。以前の版でトーク履歴を読み込んだ場合は、一度読み込み直すと文脈が使えるようになります（学習記録はそのまま残ります）。
+`android/app/src/main/AndroidManifest.xml` の `<manifest>` 直下に、次を追加します（音声入力と読み上げに必要）。
 
-## データについて
+```xml
+<uses-permission android:name="android.permission.RECORD_AUDIO" />
+<queries>
+  <intent><action android:name="android.speech.RecognitionService" /></intent>
+  <intent><action android:name="android.intent.action.TTS_SERVICE" /></intent>
+</queries>
+```
 
-- トーク履歴・学習記録・回答履歴・APIキーは、スマホのブラウザの中にだけ保存されます。
-- お手本や採点を作るときは、問題文（あなたの発言）とあなたの回答がAnthropicのClaude APIに送られます。文脈の設定がオンのときは、前後のやり取り（相手の発言を含む）も送られます。
-- ブラウザのデータを消すと記録も消えます。設定の「バックアップを保存する」で、ときどき保存しておいてください（APIキーは含まれません）。
-- APIキーは、ほかの人と共有している端末では使わないでください。
+```bash
+npm run android
+```
 
-## アプリを更新するとき
+Android Studio が開くので、実機かエミュレーターで実行します。
 
-GitHubの `index.html` を新しいものに差し替えます。ネットにつながった状態で開けば、新しい版が読み込まれます。
+### iPhone（Mac が必要）
 
-## うまく動かないとき
+```bash
+npx cap add ios
+```
 
-- 音声入力が反応しない：Chromeのサイト設定でマイクを許可してください。キーボード（Gboard）のマイクでも英語を入力できます。
-- 「APIキーが正しくない」「クレジット残高が足りない」と出る：Claude Consoleでキーと残高を確認してください。
+`ios/App/App/Info.plist` に次の2つを追加します。
+
+- `NSSpeechRecognitionUsageDescription`：英語の回答を音声で入力するために使います。
+- `NSMicrophoneUsageDescription`：英語の回答を音声で入力するために使います。
+
+```bash
+npm run ios
+```
+
+### Web版
+
+`npm run build` で `dist/` ができます。Cloudflare Pages では、ビルドコマンドを `npm run build`、出力先を `dist` にし、環境変数に `VITE_SUPABASE_URL` と `VITE_SUPABASE_ANON_KEY` を設定します。
+
+## 3. 変更したあと
+
+- アプリのコードを変えたら：`npm run android` / `npm run ios`（中で `vite build` と `cap sync` を実行します）
+- 指示文を変えたら：`npx supabase functions deploy coach`
+- データベースを変えたら：`supabase/migrations/` に新しいSQLを足して `npx supabase db push`
+
+## まだ入っていないもの
+
+- サブスク課金（RevenueCat）。入れるまでは `REQUIRE_SUBSCRIPTION=false` のまま、ログインした人は誰でも1日 `DAILY_LIMIT` 回まで使えます。
+- Google・Appleでのログイン
+- アカウントの削除（ストアの審査で求められるので、公開前に必要）
+
+## テスト
+
+`test/index.test.html` は、Supabase と Capacitor を偽物に置き換えて、ブラウザだけで動かすためのページです。Vite ではなく、ファイルをそのまま配る簡易サーバー（例：このフォルダで `python -m http.server 8080`）で `http://localhost:8080/test/index.test.html` を開くと、ネットにつながずに、ログイン・同期・出題の流れを確かめられます（確認コードは `123456`）。
