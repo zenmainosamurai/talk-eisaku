@@ -1114,9 +1114,7 @@ function lessonBubble(c) {
 }
 function learnComposer(ss) {
   const ready = ss.phase === "learn";
-  const when = whenText(Date.now() + S.mem.s0 * DAY);
   return h("div", { class: "composer" },
-    h("p", { class: "next-due", style: "margin-top:0" }, `${when === "今日" ? "今日のうちに" : when + "、"}英語で答える問題として出ます。`),
     h("div", { class: "btn-row" }, h("button", { class: "btn primary", type: "button", disabled: !ready, onclick: () => { learned(); nextQuestion(); } }, ss.phase === "learn-loading" ? "お手本を用意しています…" : "覚えた")));
 }
 function resultComposer(r) {

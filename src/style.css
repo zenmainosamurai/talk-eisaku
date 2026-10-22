@@ -116,6 +116,7 @@ a { color: var(--me-ink); }
 .btn { min-height: 52px; border-radius: 12px; border: 0; padding: 0 18px; font-weight: 700; font-size: 1rem; }
 .btn.primary { background: var(--me); color: var(--on-me); }
 .btn-row .btn.primary { flex: 1; }
+.composer > .btn-row:first-child { margin-top: 0; }
 .btn.primary:disabled { background: var(--line); color: var(--muted); cursor: default; }
 .btn.ghost { background: var(--surface); color: var(--ink); border: 1px solid var(--line); }
 .btn.block { width: 100%; }
