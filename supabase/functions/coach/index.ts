@@ -7,7 +7,16 @@ const ANTHROPIC_API_KEY = Deno.env.get("ANTHROPIC_API_KEY") ?? "";
 const MODEL = Deno.env.get("COACH_MODEL") ?? "claude-haiku-5-5";
 const DAILY_LIMIT = Number(Deno.env.get("DAILY_LIMIT") ?? "300");
 const REQUIRE_SUBSCRIPTION = (Deno.env.get("REQUIRE_SUBSCRIPTION") ?? "false") === "true";
-const admin = createClient(Deno.env.get("SUPABASE_URL") ?? "", Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "", { auth: { persistSession: false } });
+// サーバー用の鍵：新しい形式の secret key（SUPABASE_SECRET_KEYS の default）を使い、なければ従来の service_role key を使う
+// 従来の鍵（service_role）は 2026 年末までに廃止される予定
+function secretKey(): string {
+  try {
+    const keys = JSON.parse(Deno.env.get("SUPABASE_SECRET_KEYS") ?? "{}");
+    if (keys && typeof keys.default === "string" && keys.default) return keys.default;
+  } catch { /* 形式が違うときは従来の鍵を使う */ }
+  return Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+}
+const admin = createClient(Deno.env.get("SUPABASE_URL") ?? "", secretKey(), { auth: { persistSession: false } });
 
 const cors = {
   "Access-Control-Allow-Origin": "*",

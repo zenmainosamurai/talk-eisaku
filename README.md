@@ -31,7 +31,7 @@
 
 1. Supabase で新しいプロジェクトを作ります。リージョンは「Northeast Asia (Tokyo)」を選びます。
 2. 「Authentication」→「Sign In / Providers」で Email を有効にします。
-3. 「Authentication」→「Emails」で、Magic Link のメール本文に `{{ .Token }}` を入れます。これで6桁のコードがメールで届くようになります。
+3. 「Authentication」→「Email Templates」で、「Confirm sign up」と「Magic link or OTP」の2つのメール本文に `{{ .Token }}` を入れます。これで6桁のコードがメールで届くようになります（はじめてログインする人には「Confirm sign up」が届くため、両方に入れます）。
 4. このフォルダで次を実行します（`<project-ref>` はプロジェクトのURLの xxxxx 部分）。
 
    ```bash
@@ -43,12 +43,12 @@
    npx supabase functions deploy delete-account
    ```
 
-5. 公開する前に、「Authentication」→「Emails」で独自のSMTP（メール送信サービス）を設定します。Supabase標準のメール送信は回数の制限が厳しく、開発用です。
+5. 公開する前に、独自のSMTP（メール送信サービス）を設定します。Supabase標準のメール送信は、組織（Organization）のメンバーのメールアドレスにしか送れず、1時間あたりの回数も少ない開発用のものです。
 6. 無料プランは7日間ほとんど使われないと一時停止します。公開するときは有料プランに切り替えてください。
 
 ## 2. アプリを動かす
 
-1. `.env.example` を `.env` にコピーし、Supabase の「Project Settings」→「API」にある URL と anon key を書きます。
+1. `.env.example` を `.env` にコピーし、Supabase のダッシュボードの「Connect」（または「Settings」→「API Keys」）にある Project URL と Publishable key（`sb_publishable_` で始まる公開用のキー）を書きます。従来の anon key でも動きます。
 2. 依存パッケージを入れて、ブラウザで確認します。
 
    ```bash
