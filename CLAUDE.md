@@ -2,6 +2,20 @@
 
 このファイルは、claude.ai の会話で決めた仕様と方針をまとめたもの。作業の前に読み、ここにある方針と食い違う変更は、必ず利用者に確認してから行う。
 
+## このブランチ（web）について：身内用の Web 版
+
+iPhone を使う友人に試してもらうための版。`family` ブランチをもとに、GitHub Pages で Web アプリとして公開する（2026年10月、利用者の指示）。下の `family` の説明はすべてこのブランチにも当てはまる。
+
+- 公開先：https://zenmainosamurai.github.io/talk-eisaku/ 。`web` ブランチに push すると、`.github/workflows/pages.yml` がビルドして公開する。
+- 初回だけ GitHub の Settings → Pages → Build and deployment の Source を「GitHub Actions」にする。公開が「web ブランチは github-pages 環境に配置できない」で止まったら、Settings → Environments → github-pages の Deployment branches に `web` を足す。
+- Supabase の接続先と公開用のキー（publishable key）はワークフローに直接書いている。ビルドしたアプリに入るもので秘密ではない。キーを替えたらワークフローも直す。
+- `vite.config.js` の `base` は `./`（`/talk-eisaku/` の下でも動くように）。
+- 友人だけが AI を使えるよう、Secrets の `FAMILY_INVITE_CODE`（合言葉）を必ず決める。
+- iPhone の Safari は、画面に触れたときに一度鳴らした audio 要素でないと、通信を待ってからは鳴らせない。`src/native.js` の `Speech` は audio 要素を1つだけ使い回し、最初のタップで無音を鳴らしておく。
+- iPhone では LINE の共有先には出ないので、LINE の「トーク履歴を送信」で「ファイルに保存」し、アプリでそのファイルを選んでもらう（Web 版の説明のまま）。
+- Safari で開いたままだと、7日間そのサイトを使わないとデータ（トーク履歴・学習記録）が消えることがある。友人には共有ボタン →「ホーム画面に追加」から開いて使ってもらう。
+- `family` の変更を取り込むときは `git merge family`。
+
 ## このブランチ（family）について：身内用
 
 数人の友人に試してもらうための版。`main` からログインまわりをすべて外したもの（2026年10月、利用者の指示）。

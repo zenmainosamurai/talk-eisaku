@@ -78,22 +78,54 @@ function startWeb({ onText, onEnd, onError }) {
 
 // ---- 読み上げ ----
 // 音声（mp3）を再生する。速さは再生の速さで変える（声の高さは変えない）
-let player = null, playerUrl = null;
+// iPhone の Safari は、ユーザーが画面に触れたときに一度鳴らした audio 要素でないと、あとから（通信を待ってから）鳴らせない。
+// そのため audio 要素を1つだけ使い回し、最初のタップで無音を鳴らしておく
+let audioEl = null, playerUrl = null, finish = null, unlocked = false;
+const audio = () => audioEl || (audioEl = new Audio());
+function silentWavUrl() {
+  const n = 800, buf = new ArrayBuffer(44 + n), v = new DataView(buf), w = (o, t) => [...t].forEach((c, i) => v.setUint8(o + i, c.charCodeAt(0)));
+  w(0, "RIFF"); v.setUint32(4, 36 + n, true); w(8, "WAVE"); w(12, "fmt "); v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+  v.setUint32(24, 8000, true); v.setUint32(28, 8000, true); v.setUint16(32, 1, true); v.setUint16(34, 8, true); w(36, "data"); v.setUint32(40, n, true);
+  for (let i = 0; i < n; i++) v.setUint8(44 + i, 128);
+  return URL.createObjectURL(new Blob([buf], { type: "audio/wav" }));
+}
+const UNLOCK_EVENTS = ["touchend", "click", "keydown"];
+function unlockAudio() {
+  if (unlocked || finish) return;
+  const a = audio(), url = silentWavUrl();
+  a.src = url;
+  const p = a.play();
+  const end = ok => { URL.revokeObjectURL(url); if (ok) { unlocked = true; UNLOCK_EVENTS.forEach(t => document.removeEventListener(t, unlockAudio, true)); } };
+  if (p && p.then) p.then(() => { if (!finish) a.pause(); end(true); }, () => end(false)); else end(true);
+}
+if (typeof document !== "undefined") UNLOCK_EVENTS.forEach(t => document.addEventListener(t, unlockAudio, true));
+
 export const Speech = {
+  // 止める（途中で止めたものは、失敗とは扱わない）
   stop() {
-    if (player) { try { player.pause(); } catch {} player = null; }
-    if (playerUrl) { URL.revokeObjectURL(playerUrl); playerUrl = null; }
+    if (finish) finish(true);
+    if (audioEl) { try { audioEl.pause(); } catch {} }
   },
   // 最後まで再生できたら true
   play(blob, rate) {
     this.stop();
     return new Promise(res => {
-      const url = URL.createObjectURL(blob), a = new Audio(url);
-      player = a; playerUrl = url;
-      a.defaultPlaybackRate = rate; a.playbackRate = rate; a.preservesPitch = true;
-      const done = ok => { if (player === a) this.stop(); res(ok); };
+      const a = audio(), url = URL.createObjectURL(blob);
+      let settled = false;
+      const done = ok => {
+        if (settled) return;
+        settled = true;
+        if (finish === done) finish = null;
+        a.onended = a.onerror = null;
+        if (playerUrl === url) playerUrl = null;
+        URL.revokeObjectURL(url);
+        res(ok);
+      };
+      finish = done; playerUrl = url;
       a.onended = () => done(true);
       a.onerror = () => done(false);
+      a.src = url;
+      a.defaultPlaybackRate = rate; a.playbackRate = rate; a.preservesPitch = true;
       a.play().catch(e => done(!!e && e.name === "AbortError"));
     });
   }
