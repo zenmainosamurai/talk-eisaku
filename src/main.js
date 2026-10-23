@@ -206,6 +206,15 @@ function addSource(src, items) {
   pool.v = 2; S.pool = pool; indexPool(); savePool(); saveCards();
   return added;
 }
+// 読み込んだトークを1つ消す（学習記録は残す）。最後の1つなら、トーク履歴をすべて消したのと同じ
+function removeSource(src) {
+  if (!S.pool) return;
+  const pool = S.pool;
+  pool.sources = pool.sources.filter(x => x !== src);
+  pool.items = pool.items.filter(it => (src.key ? it.src !== src.key : !!it.src));
+  S.pool = pool.sources.length ? pool : null;
+  indexPool(); savePool(); S.plan = null;
+}
 const needsReimport = () => !!(S.pool && S.pool.items.some(i => !i.src));
 // 前後のやり取り（同じ日のみ）。システムメッセージは除き、スタンプ・写真はそのまま残す
 function contextOf(item) {
@@ -1401,10 +1410,16 @@ function viewSettings() {
   const fileBtn = h("label", { class: "btn ghost block file-btn" }, "トーク履歴を追加・読み込み直す",
     h("input", { type: "file", onchange: e => onFile(e.target.files && e.target.files[0]) }));
   const deletePoolBtn = h("button", { class: "btn ghost block danger", type: "button", style: "margin-top:10px", onclick: () =>
-    confirmBox("読み込んだトーク履歴を削除しますか？", "学習記録は残ります。もう一度使うときは、LINEから送り直してください。", "削除する", () => {
-      S.pool = null; indexPool(); savePool(); S.plan = null; toast("読み込んだトーク履歴を削除しました。学習記録は残っています。"); render();
-    }, true) }, "読み込んだトーク履歴を削除する");
-  const talkItem = s => h("div", { class: "talk-item" }, `${s.partner} とのトーク（${(s.count || 0).toLocaleString()}問）`);
+    confirmBox("読み込んだトーク履歴をすべて削除しますか？", "学習記録は残ります。もう一度使うときは、LINEから送り直してください。", "削除する", () => {
+      S.pool = null; indexPool(); savePool(); S.plan = null; toast("読み込んだトーク履歴をすべて削除しました。学習記録は残っています。"); render();
+    }, true) }, "読み込んだトーク履歴をすべて削除する");
+  // トークごとに削除できる。そのトークから作った学習記録は残す
+  const talkItem = s => h("div", { class: "talk-item" },
+    h("span", { class: "talk-name" }, `${s.partner} とのトーク（${(s.count || 0).toLocaleString()}問）`),
+    h("button", { class: "link danger", type: "button", "aria-label": `${s.partner} とのトークを削除`, onclick: () =>
+      confirmBox(`${s.partner} とのトークを削除しますか？`, "このトークから作った学習記録は残ります。もう一度使うときは、LINEから送り直してください。", "削除する", () => {
+        removeSource(s); toast(`${s.partner} とのトークを削除しました。学習記録は残っています。`); render();
+      }, true) }, "削除"));
   const note = (text, last) => h("p", { class: "note", style: last ? "margin:0" : "margin:0 0 6px" }, text);
   const account = Cloud.signedIn()
     ? [note(Cloud.email()), note(syncLine(), true),
@@ -1437,7 +1452,7 @@ function viewSettings() {
         ? h("div", { class: "talk-list" }, S.pool.sources.map(talkItem))
         : h("p", { class: "note", style: "margin:0 0 12px" }, "読み込まれていません。"),
       fileBtn,
-      S.pool ? deletePoolBtn : null,
+      S.pool && S.pool.sources.length > 1 ? deletePoolBtn : null,
       h("div", { class: "howto" },
         h("h3", null, "LINEからトーク履歴を追加するには"),
         h("ol", { class: "steps" },
