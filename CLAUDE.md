@@ -2,6 +2,18 @@
 
 このファイルは、claude.ai の会話で決めた仕様と方針をまとめたもの。作業の前に読み、ここにある方針と食い違う変更は、必ず利用者に確認してから行う。
 
+## このブランチ（family）について：身内用
+
+数人の友人に試してもらうための版。`main` からログインまわりをすべて外したもの（2026年10月、利用者の指示）。
+
+- ログイン・学習記録の同期・復元キー・アカウントの削除はない（`src/vault.js` と、それらの画面は消した）。トーク履歴・学習記録・回答履歴・設定・読み上げの音声は、すべて端末の中だけに保存する。アプリを消したり機種を替えたりすると消える。
+- AI（お手本・採点・読み上げ）は Edge Function `family` を使う。ログインがないので `verify_jwt` は false でデプロイする（`npx supabase functions deploy family --no-verify-jwt`）。指示文は `coach/prompts.ts` を共有しているので、指示文を変えたら `coach` と `family` の両方をデプロイする。
+- 誰でも呼べるため、端末ごとのランダムな ID（`tk.device.v1`）で1日の回数を数えて費用を抑える。端末ごと120回、全員の合計で600回まで（`FAMILY_DEVICE_LIMIT`・`FAMILY_GLOBAL_LIMIT`）。回数はテーブル `family_usage` と関数 `bump_family_usage` で数え、30日より前の記録は消す。
+- 管理者パスワード（Secrets の `FAMILY_ADMIN_PASSWORD`、利用者が登録する）を設定の一番下で入れた端末は、上限なしで全員の合計にも数えない。端末にはパスワードではなく、パスワードと端末IDから作った印（HMAC、`tk.admin.v1`）を保存する。パスワードは1台・1日10回まで試せる。
+- AIへの送信の同意画面は残す（利用者の判断）。「データの取り扱いについて」の学習記録の項目は「学習・回答履歴の保管」にし、端末ごとの ID と回数をサーバーに記録することも書く。
+- アプリの名前と ID は `main` と同じ（同じ端末では入れ替わる）。Supabase のプロジェクトも `main` と同じで、`coach`・`tts`・`delete-account` は `main` のアプリのために残している。
+- `main` の変更を取り込むときは `git merge main`。下の方針のうち、ログイン・暗号化・同期・アカウントの削除の項目は `main` だけに当てはまる。
+
 ## アプリの概要
 
 - LINEのトーク履歴（「トーク履歴を送信」で書き出した .txt）から利用者自身の発言を取り出し、英語で話す練習の問題にする。
@@ -15,13 +27,13 @@
 | 場所 | 役割 |
 | --- | --- |
 | `src/main.js` | アプリ本体。画面、トーク履歴の読み込み、出題、記憶モデル、カレンダー |
-| `src/cloud.js` | Supabase との連携。ログイン、暗号化した学習記録の同期、AIコーチの呼び出し |
-| `src/vault.js` | 学習記録の暗号化（復元キー、鍵の導出、暗号化・復号、鍵付きハッシュID） |
+| `src/cloud.js` | 身内用：Edge Function `family` の呼び出し（AIコーチ・読み上げ・管理者パスワード）と端末ID |
 | `src/native.js` | 音声入力・読み上げの音声の再生・戻るボタン・共有の受け取り。音声入力はスマホ版が Capacitor プラグイン、Web版がブラウザの機能 |
 | `src/store.js` | 端末内の保存（IndexedDB と localStorage） |
 | `android/` | Android アプリのプロジェクト（Capacitor が作成）。Web版の変更は `npm run android` で反映する |
 | `scripts/make_android_icons.py` | `public/` のアイコンから Android のアイコンと起動画面のアイコンを作る（Python と Pillow が必要） |
-| `supabase/migrations/` | データベース（vault_keys、vault_items、subscriptions、usage_daily） |
+| `supabase/migrations/` | データベース（vault_keys、vault_items、subscriptions、usage_daily、身内用の family_usage） |
+| `supabase/functions/family/` | 身内用の Edge Function。ログインなしで AIコーチと読み上げを使う。端末ごと・全員の1日の上限と管理者パスワード |
 | `supabase/functions/coach/` | AIコーチの Edge Function（OpenAI の Responses API に中継）。指示文は `prompts.ts` |
 | `supabase/functions/tts/` | 読み上げの Edge Function。英文を OpenAI で音声（mp3）にして返す |
 | `supabase/functions/delete-account/` | アカウントの削除の Edge Function。auth のユーザーを消し、関連する行は `on delete cascade` で消える |

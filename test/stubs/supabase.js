@@ -51,6 +51,17 @@ export function createClient() {
     from: t => new Query(t),
     functions: {
       async invoke(name, { body }) {
+        // 身内用（family ブランチ）：ログインなしの Edge Function
+        if (name === "family") {
+          (window.__familyBodies = window.__familyBodies || []).push(body);
+          const fail = code => ({ data: null, error: { context: { json: async () => ({ error: code }) } } });
+          if (window.__offline) return { data: null, error: { context: null } };
+          if (body.kind === "admin") return body.password === (window.__adminPassword || "secret") ? { data: { token: "tok-" + body.device }, error: null } : fail("wrong_password");
+          if (window.__familyFail) return fail(window.__familyFail);
+          if (body.kind === "tts") { (window.__ttsCalls = window.__ttsCalls || []).push(body.text); return { data: new Blob([silentWav()], { type: "application/octet-stream" }), error: null }; }
+          (window.__coachCalls = window.__coachCalls || []).push(body);
+          return { data: { data: window.__fakeCoach ? window.__fakeCoach(body) : defaultCoach(body) }, error: null };
+        }
         if (name === "delete-account") {
           if (!session) return { data: null, error: { context: { json: async () => ({ error: "not_signed_in" }) } } };
           if (window.__offline) return { data: null, error: { context: null } };

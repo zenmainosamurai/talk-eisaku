@@ -58,8 +58,8 @@ function toast(msg, ms = 3800) {
 }
 
 /* ============ 保存（この端末） ============ */
-// トーク履歴は端末の外に出さない。学習記録と回答履歴は、暗号化して Cloud が同期する
-const K = { settings: "tk.settings.v1", mem: "tk.memory.v1", metaAt: "tk.metaAt.v1", wipedAt: "tk.wipedAt.v1", aiConsent: "tk.aiConsent.v1", oldPool: "tk.pool.v1", oldCards: "tk.cards.v1" };
+// 身内用：トーク履歴・学習記録・回答履歴は、この端末の中だけに保存する（サーバーには送らない）
+const K = { settings: "tk.settings.v1", mem: "tk.memory.v1", aiConsent: "tk.aiConsent.v1", oldPool: "tk.pool.v1", oldCards: "tk.cards.v1" };
 const pending = {};
 function saveLater(key, ms = 300) {
   clearTimeout(pending[key]);
@@ -73,25 +73,15 @@ function flushOne(key) {
 }
 function flushAll() { for (const k of Object.keys(pending)) flushOne(k); }
 document.addEventListener("visibilitychange", () => {
-  if (document.visibilityState === "hidden") { flushAll(); Cloud.flush(); }
-  else if (S.ready) Cloud.sync();
+  if (document.visibilityState === "hidden") flushAll();
 });
 const saveCards = () => saveLater("cards");
 const saveLog = () => saveLater("log");
 const savePool = () => saveLater("pool", 50);
-function persistSettings() {
-  LS.set(K.settings, S.settings);
-  S.metaAt = Date.now(); LS.set(K.metaAt, S.metaAt);
-  Cloud.markMeta();
-}
-const dayKey = t => { const d = new Date(t); return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`; };
-// 学習記録を変えたら、同期の対象にする
-function touch(card, eventTime) {
-  card.u = Date.now();
-  Cloud.markCard(card.id);
-  if (eventTime) Cloud.markDay(dayKey(eventTime));
-}
-const canStudy = () => Cloud.signedIn() && Cloud.status !== "checking";
+function persistSettings() { LS.set(K.settings, S.settings); }
+// 学習記録を変えた時刻を残す
+function touch(card) { card.u = Date.now(); }
+const canStudy = () => Cloud.configured();
 
 
 /* ============ 状態 ============ */
@@ -104,7 +94,6 @@ const S = {
   log: [],               // 回答履歴 { id, t, k: learn|correct|close|wrong|init|seen, p?, dt?, s?, l? }
   mem: { m: 1, s0: 1, n: 0, nAt: 0, fitted: false, at: 0 },  // あなた向けの記憶モデル
   settings: { ...DEFAULT_SETTINGS },
-  metaAt: 0, wipedAt: 0, vaultLater: false,
   aiConsent: null,       // AIへの送信の同意 { v, at }。この端末にだけ保存し、サーバーには送らない
   pendingPlan: null, consentFrom: null,
   ready: false, plan: null, session: null, setup: null, micBlocked: false
@@ -405,7 +394,7 @@ function toggleListening(ta, btn, onChange) {
   });
 }
 // 読み上げ：OpenAI で作った音声を端末に保存し、同じ英文は保存したものを使う
-// 作るときはログインとAIへの送信の同意が必要（sample：設定の「試しに聞く」の決まった英文は、同意の前でも作れる）
+// 作るときはAIへの送信の同意が必要（sample：設定の「試しに聞く」の決まった英文は、同意の前でも作れる）
 const TTS_VOICE = "gpt-audio-1.5/marin"; // サーバー（supabase/functions/tts）の声を変えたら、ここも変えて作り直す
 const TTS = {
   seq: 0,
@@ -427,9 +416,7 @@ const TTS = {
 };
 function ttsErrorCopy(code) {
   if (code === "unconfigured") return "サーバーの設定がまだのため、読み上げが使えません。";
-  if (code === "not_signed_in") return "読み上げるには、ログインしてください。";
-  if (code === "no_subscription") return "読み上げは、サブスク会員向けの機能です。";
-  if (["daily_limit", "offline", "network", "overloaded"].includes(code)) return errorCopy(code);
+  if (["daily_limit", "family_limit", "offline", "network", "overloaded"].includes(code)) return errorCopy(code);
   return "読み上げできませんでした。もう一度試してください。";
 }
 
@@ -508,13 +495,12 @@ async function teach(item) {
   if (!r || typeof r.model !== "string" || !r.model.trim()) throw { code: "invalid_json" };
   return { model: speakable(r.model.trim()), alts: Array.isArray(r.alts) ? r.alts.map(str).map(speakable).filter(Boolean).slice(0, 2) : [], point: str(r.point), phrase: speakable(str(r.phrase)), phrase_ja: str(r.phrase_ja) };
 }
-const PERMANENT = new Set(["unconfigured", "not_signed_in", "no_subscription", "no_consent"]);
+const PERMANENT = new Set(["unconfigured", "no_consent"]);
 function errorCopy(code) {
   if (code === "unconfigured") return "サーバーの設定がまだのため、お手本と採点が使えません。";
-  if (code === "not_signed_in") return "お手本と採点を使うには、ログインしてください。";
   if (code === "no_consent") return "お手本と採点を使うには、AIへの送信に同意してください。";
-  if (code === "no_subscription") return "お手本と採点は、サブスク会員向けの機能です。";
-  if (code === "daily_limit") return "今日の利用上限に達しました。明日また使えます。";
+  if (code === "daily_limit") return "この端末の今日の利用上限に達しました。明日また使えます。";
+  if (code === "family_limit") return "今日はみんなの利用上限に達しました。明日また使えます。";
   if (code === "rate_limited") return "短時間に使いすぎたため、少し待ってから、もう一度試してください。";
   if (code === "overloaded") return "AIが混み合っています。少し待ってから、もう一度試してください。";
   if (code === "offline") return "インターネットに接続されていません。接続してから、もう一度試してください。";
@@ -601,7 +587,7 @@ function learned() {
   const now = Date.now(), ev = { id: c0.id, t: now, k: "learn" };
   const st = step(null, ev, S.mem);
   const c = { ...c0, created: now, S: st.S, last: st.last, lapses: 0 };
-  S.cards[c.id] = c; S.log.push(ev); touch(c, ev.t); saveCards(); saveLog();
+  S.cards[c.id] = c; S.log.push(ev); touch(c); saveCards(); saveLog();
   if (!ss.first[c.id]) ss.first[c.id] = "learned";
   ss.lesson = null;
 }
@@ -641,7 +627,7 @@ function commit() {
   if (st) { ev.p = Math.round(R((r.now - st.last) / DAY, st.S) * 1000) / 1000; ev.dt = Math.round((r.now - st.last) / DAY * 100) / 100; }
   const ns = step(st, ev, S.mem);
   const final = { ...c, S: ns.S, last: ns.last, lapses: ns.lapses };
-  S.cards[final.id] = final; S.log.push(ev); touch(final, ev.t); saveCards(); saveLog();
+  S.cards[final.id] = final; S.log.push(ev); touch(final); saveCards(); saveLog();
   if (!ss.first[final.id]) ss.first[final.id] = r.chosen;
   if (r.chosen === "wrong") {
     if (!ss.missed.includes(final.id)) ss.missed.push(final.id);
@@ -666,20 +652,11 @@ function scrollToEnd() {
 
 /* ============ 画面 ============ */
 const app = document.getElementById("app");
-// 実際に表示する画面。ログイン直後は、復元キーの作成・入力を先に済ませる
-function shownView() {
-  const v = S.view;
-  if (v !== "setup" && v !== "login" && v !== "deleteAccount") {
-    if (Cloud.status === "needsSetup") return "vaultSetup";
-    if (Cloud.status === "needsKey" && !S.vaultLater) return "vaultUnlock";
-  }
-  return v;
-}
 function render() {
   if (!S.ready) { app.replaceChildren(h("div", { class: "view" }, h("p", { class: "loading" }, "読み込んでいます…"))); return; }
-  const v = shownView();
-  const node = v === "setup" ? viewSetup() : v === "login" ? viewLogin() : v === "vaultSetup" ? viewVaultSetup() : v === "vaultUnlock" ? viewVaultUnlock() : v === "quiz" ? viewQuiz() : v === "done" ? viewDone()
-    : v === "weak" ? viewWeak() : v === "settings" ? viewSettings() : v === "consent" ? viewConsent() : v === "deleteAccount" ? viewDeleteAccount() : viewHome();
+  const v = S.view;
+  const node = v === "setup" ? viewSetup() : v === "quiz" ? viewQuiz() : v === "done" ? viewDone()
+    : v === "weak" ? viewWeak() : v === "settings" ? viewSettings() : v === "consent" ? viewConsent() : viewHome();
   app.replaceChildren(node);
 }
 function go(view) { stopListening(); closeConfirm(); S.view = view; if (view === "home") S.plan = null; render(); window.scrollTo(0, 0); }
@@ -704,26 +681,24 @@ function handleBack() {
   if (!S.ready) return false;
   if (document.querySelector(".confirm-overlay")) { closeConfirm(); return true; }
   if (rec) { stopListening(); return true; }
-  const v = shownView();
+  const v = S.view;
   if (v === "quiz") {
     confirmBox("問題を終了しますか？", "ここまでの回答は保存されます。", "終了する", quit);
     return true;
   }
   if (v === "done") { S.session = null; go("home"); return true; }
-  if (v === "settings" || v === "weak" || v === "login") { go("home"); return true; }
-  if (v === "deleteAccount") { if (!DELETE.busy) go("settings"); return true; }
+  if (v === "settings" || v === "weak") { go("home"); return true; }
   if (v === "consent") {
     const to = S.consentFrom === "settings" ? "settings" : "home";
     S.pendingPlan = null; S.consentFrom = null; go(to); return true;
   }
-  if (v === "vaultUnlock") { S.vaultLater = true; go("home"); return true; }
   if (v === "setup") {
     if (S.setup) { S.setup = null; render(); return true; }
     if (S.pool || allCards().length) { go("home"); return true; }
     return false;
   }
   if (v === "home" && CAL.open) { CAL.open = null; render(); return true; }
-  return false; // ホーム・はじめての画面・復元キーの作成中
+  return false; // ホーム・はじめての画面
 }
 
 /* --- はじめての読み込み / トーク追加 --- */
@@ -820,11 +795,7 @@ function viewHome() {
     : h("button", { class: "btn ghost block", type: "button", disabled: !canStudy() || !unstudied, onclick: () => requestStart(makePlan(5)) }, "あと5問"));
 
   const banners = [];
-  if (Cloud.status === "unconfigured") banners.push(h("p", { class: "banner" }, "サーバーが未設定です。開発用の .env にSupabaseの接続先を書いてください。"));
-  else if (!Cloud.signedIn()) banners.push(h("p", { class: "banner" }, "お手本と採点を使うには、ログインが必要です。",
-    h("br"), h("button", { class: "link", style: "padding-left:0", type: "button", onclick: () => go("login") }, "ログインする")));
-  else if (Cloud.status === "needsKey") banners.push(h("p", { class: "banner" }, "復元キーを入力すると、ほかの端末の学習記録と同期できます。",
-    h("br"), h("button", { class: "link", style: "padding-left:0", type: "button", onclick: () => { S.vaultLater = false; render(); } }, "復元キーを入力する")));
+  if (!Cloud.configured()) banners.push(h("p", { class: "banner" }, "サーバーが未設定です。開発用の .env にSupabaseの接続先を書いてください。"));
   if (!S.pool) banners.push(h("p", { class: "banner" }, "トーク履歴が読み込まれていないため、新しい問題は出せません（復習はできます）。",
     h("br"), h("button", { class: "link", style: "padding-left:0", type: "button", onclick: () => go("setup") }, "トーク履歴を読み込む")));
   else if (needsReimport() && S.settings.sendContext) banners.push(h("p", { class: "banner" }, "前後の文脈を踏まえて訳すには、トーク履歴をもう一度読み込んでください。",
@@ -1097,8 +1068,8 @@ function errorBubble(code) {
       h("div", { class: "btn-row" },
         PERMANENT.has(code) ? h("button", { class: "btn ghost", type: "button", onclick: () => {
           if (S.session) quit();
-          if (code === "no_consent") { S.consentFrom = "home"; go("consent"); } else go(code === "not_signed_in" ? "login" : "settings");
-        } }, code === "not_signed_in" ? "ログインする" : code === "no_consent" ? "送る内容を見る" : "設定を開く") : null,
+          if (code === "no_consent") { S.consentFrom = "home"; go("consent"); } else go("settings");
+        } }, code === "no_consent" ? "送る内容を見る" : "設定を開く") : null,
         !PERMANENT.has(code) && code !== "refused" ? h("button", { class: "btn ghost", type: "button", onclick: () => (ss.kind === "new" ? loadLesson() : check(ss.giveUp)) }, "もう一度") : null,
         h("button", { class: "btn ghost", type: "button", onclick: nextQuestion }, "この問題をとばす"))));
 }
@@ -1186,44 +1157,6 @@ function viewWeak() {
       : h("p", { class: "empty" }, "まだ苦手な表現はありません。問題に答えると、まちがえた表現がここにたまります。"));
 }
 
-/* --- ログイン（メールに届く6桁のコード） --- */
-const LOGIN = { email: "", sent: false, busy: false };
-function viewLogin() {
-  const back = navBtn("back", "戻る", () => go("home"));
-  const emailIn = h("input", { class: "text-in", id: "email", type: "email", inputmode: "email", autocomplete: "email", autocapitalize: "off", placeholder: "you@example.com", value: LOGIN.email });
-  const codeIn = h("input", { class: "text-in", id: "code", type: "text", inputmode: "numeric", autocomplete: "one-time-code", maxlength: "10", placeholder: "123456" });
-  const send = h("button", { class: "btn primary block", type: "button", disabled: LOGIN.busy, onclick: async () => {
-    const email = emailIn.value.trim();
-    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) { toast("メールアドレスを確認してください。"); return; }
-    LOGIN.email = email; LOGIN.busy = true; render();
-    try { await Cloud.sendCode(email); LOGIN.sent = true; toast("確認コードを送りました。メールを確認してください。"); }
-    catch (e) { toast(e && e.code === "rate_limited" ? "送信回数が多すぎます。少し待ってから、もう一度試してください。" : "確認コードを送れませんでした。"); }
-    finally { LOGIN.busy = false; render(); }
-  } }, LOGIN.sent ? "コードを送り直す" : "確認コードを送る");
-  const verify = h("button", { class: "btn primary block", type: "button", disabled: LOGIN.busy, onclick: async () => {
-    const code = codeIn.value.replace(/\D/g, "");
-    if (code.length < 6) { toast("メールに届いたコードを入力してください。"); return; }
-    LOGIN.busy = true; render();
-    try { await Cloud.verifyCode(LOGIN.email, code); LOGIN.sent = false; S.view = "home"; S.plan = null; }
-    catch { toast("コードが正しくないか、有効期限が切れています。"); }
-    finally { LOGIN.busy = false; render(); }
-  } }, "ログイン");
-  return h("div", { class: "view" },
-    h("div", { class: "bar" }, back),
-    h("div", { class: "intro" },
-      h("p", { class: "title", style: "font-size:1.375rem" }, "ログイン"),
-      h("p", null, "お手本と採点を使うため、またほかの端末と学習記録を同期するために、ログインします。")),
-    h("section", { style: "border-top:0" },
-      h("label", { class: "field", for: "email" }, "メールアドレス"), emailIn,
-      h("div", { style: "margin-top:12px" }, LOGIN.sent ? null : send),
-      LOGIN.sent ? [
-        h("p", { class: "note", style: "margin:4px 0 12px" }, `${LOGIN.email} に届いた6桁のコードを入力してください。`),
-        h("label", { class: "field", for: "code" }, "確認コード"), codeIn,
-        h("div", { style: "margin-top:12px" }, verify),
-        h("div", { style: "margin-top:10px" }, h("button", { class: "link", style: "padding-left:0", type: "button", onclick: () => { LOGIN.sent = false; render(); } }, "メールアドレスを変える"))
-      ] : null));
-}
-
 /* --- AIに送る前の同意 --- */
 const fmtYMD = t => { const d = new Date(t); return `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日`; };
 function viewConsent() {
@@ -1265,126 +1198,33 @@ function viewConsent() {
             h("button", { class: "btn primary", type: "button", onclick: agree }, from === "start" ? "同意してはじめる" : "同意する"))));
 }
 
-/* --- アカウントの削除 --- */
-// この端末に保存しているものをすべて消し、はじめて開いたときの状態に戻す
-async function wipeThisDevice() {
-  for (const k of Object.keys(pending)) clearTimeout(pending[k]), delete pending[k];
-  stopListening(); TTS.stop();
-  Object.assign(S, { pool: null, cards: {}, log: [], mem: { m: 1, s0: 1, n: 0, nAt: 0, fitted: false, at: 0 }, settings: { ...DEFAULT_SETTINGS },
-    metaAt: 0, wipedAt: 0, aiConsent: null, pendingPlan: null, consentFrom: null, vaultLater: false, plan: null, session: null, setup: null });
-  indexPool(); lessons.clear(); skippedNow.clear();
-  await Promise.all(["pool", "cards", "log", "skips", "vaultKeys", "sync"].map(k => Store.del(k)));
-  await AudioCache.clear();
-  for (const key of Object.values(K)) LS.del(key);
-}
-const DELETE = { understood: false, busy: false };
-function viewDeleteAccount() {
-  const back = navBtn("back", "戻る", () => go("settings"), { disabled: DELETE.busy });
-  const li = t => h("li", null, t);
-  const check = h("input", { type: "checkbox", id: "understood", checked: DELETE.understood, disabled: DELETE.busy, onchange: e => { DELETE.understood = e.target.checked; del.disabled = !DELETE.understood; } });
-  const del = h("button", { class: "btn primary danger block", type: "button", disabled: !DELETE.understood || DELETE.busy, onclick: async () => {
-    DELETE.busy = true; render();
-    try {
-      await Cloud.deleteAccount();
-      await wipeThisDevice();
-      DELETE.busy = false; DELETE.understood = false;
-      toast("アカウントを削除しました。");
-      go("home");
-    } catch (e) {
-      DELETE.busy = false; render();
-      const code = e && e.code;
-      toast(code === "offline" ? "インターネットに接続されていません。接続してから、もう一度試してください。"
-        : code === "not_signed_in" ? "ログインの有効期限が切れています。ログインし直してから、もう一度試してください。"
-        : "アカウントを削除できませんでした。電波の状態を確認して、もう一度試してください。", 6000);
+/* --- 管理者（身内用）：パスワードを入れた端末は、利用回数の上限なしで使える --- */
+const ADMIN = { open: false, busy: false };
+function adminSection() {
+  if (Cloud.isAdmin()) return h("section", null, h("h2", null, "管理者"),
+    h("p", { class: "note", style: "margin:0 0 6px" }, "この端末は、利用回数の上限なしで使えます。"),
+    h("button", { class: "link", style: "padding-left:0", type: "button", onclick: () => { Cloud.adminLogout(); toast("管理者の登録を外しました。"); render(); } }, "管理者の登録を外す"));
+  if (!ADMIN.open) return h("section", null,
+    h("button", { class: "link", style: "padding-left:0", type: "button", onclick: () => { ADMIN.open = true; render(); } }, "管理者パスワードを入力する"));
+  const pw = h("input", { class: "text-in", id: "adminpw", type: "password", autocomplete: "off" });
+  const ok = h("button", { class: "btn primary", type: "button", disabled: ADMIN.busy, onclick: async () => {
+    if (!pw.value) { toast("パスワードを入力してください。"); return; }
+    ADMIN.busy = true; ok.disabled = true;
+    try { await Cloud.adminLogin(pw.value); ADMIN.open = false; toast("この端末を管理者として登録しました。"); }
+    catch (e) {
+      const c = e && e.code;
+      toast(c === "wrong_password" ? "パスワードが違います。" : c === "too_many_tries" ? "試した回数が多すぎます。明日また試してください。"
+        : c === "admin_unconfigured" ? "サーバーに管理者パスワードが設定されていません。" : errorCopy(c), 5000);
     }
-  } }, DELETE.busy ? "削除しています…" : "アカウントを削除する");
-  return h("div", { class: "view" },
-    h("div", { class: "bar" }, back),
-    h("div", { class: "intro" },
-      h("p", { class: "title", style: "font-size:1.375rem" }, "アカウントを削除する"),
-      h("p", null, "アカウントを削除すると、次のものがすべて消えます。元に戻すことはできません。")),
-    h("section", { style: "border-top:0" },
-      h("ul", { class: "consent-list" },
-        li(`ログインに使っているアカウント（${Cloud.email()}）`),
-        li("サーバーに保存している学習記録と回答履歴（暗号化したもの）と、復元キーで開く鍵"),
-        li("この端末に保存しているトーク履歴・学習記録・設定")),
-      h("p", { class: "note", style: "margin:12px 0 0" }, "ほかの端末でもこのアカウントを使っていた場合、その端末はログアウトされます。その端末に残っている記録は、その端末でアプリを削除すると消えます。"),
-      h("p", { class: "banner" }, "サブスクに登録している場合、アカウントを削除しても自動では解約されません。App Store または Google Play の定期購入の画面で解約してください。")),
-    h("section", null,
-      h("label", { class: "check" }, check, h("span", null, "元に戻せないことを理解しました")),
-      h("div", { style: "margin-top:14px" }, del)),
-    h("div", { style: "height:24px" }));
-}
-
-/* --- 復元キーの作成（はじめてのログイン） --- */
-const VAULT = { key: null, saved: false, busy: false, input: "", armedReset: false };
-function viewVaultSetup() {
-  if (!VAULT.key && !VAULT.busy) {
-    VAULT.busy = true;
-    Cloud.beginSetup().then(k => { VAULT.key = k; VAULT.busy = false; render(); });
-  }
-  const check = h("input", { type: "checkbox", id: "saved", checked: VAULT.saved, onchange: e => { VAULT.saved = e.target.checked; done.disabled = !VAULT.saved; } });
-  const done = h("button", { class: "btn primary block", type: "button", disabled: !VAULT.saved || !VAULT.key, onclick: async () => {
-    done.disabled = true;
-    try { await Cloud.finishSetup(); VAULT.key = null; VAULT.saved = false; toast("学習記録の同期を始めました。"); go("home"); }
-    catch { toast("保存できませんでした。電波の状態を確認して、もう一度試してください。"); done.disabled = false; }
-  } }, "保存したので次へ");
-  return h("div", { class: "view" },
-    h("div", { class: "intro" },
-      h("p", { class: "title", style: "font-size:1.375rem" }, "復元キーを保存してください"),
-      h("p", null, "学習記録は、この端末で暗号化してから保存します。機種変更のときや別の端末で使うときは、この復元キーで記録を戻します。")),
-    h("section", { style: "border-top:0" },
-      h("div", { class: "rkey", "aria-label": "復元キー" }, VAULT.key ? VAULT.key.replace(/^((?:[A-Z0-9]{4}-){2}[A-Z0-9]{4})-/, "$1-\n") : "作成しています…"),
-      VAULT.key ? h("button", { class: "btn ghost block", type: "button", style: "margin-top:10px", onclick: () => {
-        (navigator.clipboard ? navigator.clipboard.writeText(VAULT.key) : Promise.reject()).then(() => toast("コピーしました。パスワード管理アプリなどに保存してください。"), () => toast("コピーできませんでした。書き写して保存してください。"));
-      } }, "コピーする") : null,
-      h("p", { class: "banner" }, "運営者は復元キーを保管していません。なくすと、運営者にも学習記録を戻せません。スクリーンショットだけでなく、パスワード管理アプリなどにも保存しておくと安心です。"),
-      h("label", { class: "check" }, check, h("span", null, "復元キーを安全な場所に保存しました")),
-      h("div", { style: "margin-top:14px" }, done)));
-}
-
-/* --- 復元キーの入力（別の端末・再インストール） --- */
-function viewVaultUnlock() {
-  const keyIn = h("input", { class: "text-in rkey-in", id: "rk", type: "text", autocapitalize: "characters", autocomplete: "off", spellcheck: "false", placeholder: "XXXX-XXXX-XXXX-XXXX-XXXX-XXXX", value: VAULT.input,
-    oninput: e => { VAULT.input = e.target.value; } });
-  const go1 = h("button", { class: "btn primary block", type: "button", disabled: VAULT.busy, onclick: async () => {
-    VAULT.busy = true; go1.disabled = true; go1.textContent = "確認しています…";
-    try { await Cloud.unlock(keyIn.value); VAULT.input = ""; toast("学習記録を戻しました。"); S.plan = null; go("home"); }
-    catch (e) { toast(e && e.code === "wrong_key" ? "復元キーが違います。もう一度確認してください。" : "確認できませんでした。電波の状態を確認してください。"); }
-    finally { VAULT.busy = false; if (go1.isConnected) { go1.disabled = false; go1.textContent = "記録を戻す"; } }
-  } }, "記録を戻す");
-  const reset = h("button", { class: "link danger", style: "padding-left:0", type: "button", onclick: async () => {
-    if (!VAULT.armedReset) { VAULT.armedReset = true; reset.textContent = "もう一度タップすると、サーバー上の学習記録を消して作り直します"; setTimeout(() => { VAULT.armedReset = false; if (reset.isConnected) reset.textContent = "復元キーをなくした"; }, 5000); return; }
-    VAULT.armedReset = false;
-    try { await Cloud.resetVault(); render(); } catch { toast("作り直せませんでした。"); }
-  } }, "復元キーをなくした");
-  return h("div", { class: "view" },
-    h("div", { class: "intro" },
-      h("p", { class: "title", style: "font-size:1.375rem" }, "復元キーを入力してください"),
-      h("p", null, `${Cloud.email()} の学習記録を、この端末に戻します。最初のログインのときに保存した24文字の復元キーを入力してください。`)),
-    h("section", { style: "border-top:0" },
-      h("label", { class: "field", for: "rk" }, "復元キー"), keyIn,
-      h("div", { style: "margin-top:12px" }, go1),
-      h("div", { style: "margin-top:16px" }, h("button", { class: "link", style: "padding-left:0", type: "button", onclick: () => { S.vaultLater = true; go("home"); } }, "あとで入力する")),
-      h("p", { class: "note", style: "margin:14px 0 6px" }, "復元キーをなくした場合は、サーバー上の学習記録を消して作り直せます。この端末にある記録は残り、新しい復元キーで保存し直します。"),
-      reset));
+    finally { ADMIN.busy = false; render(); }
+  } }, "登録する");
+  return h("section", null, h("h2", null, "管理者"),
+    h("label", { class: "field", for: "adminpw" }, "管理者パスワード"), pw,
+    h("div", { class: "btn-row" }, h("button", { class: "btn ghost", type: "button", onclick: () => { ADMIN.open = false; render(); } }, "やめる"), ok));
 }
 
 /* --- 設定 --- */
 let resetArmed = false;
-function syncLine() {
-  const st = Cloud.status;
-  if (st === "unconfigured") return "サーバーが未設定のため、この端末だけで動いています。";
-  if (st === "signedOut") return "ログインしていません。";
-  if (st === "needsKey") return "復元キーが未入力のため、学習記録を同期していません。";
-  if (st === "needsSetup") return "復元キーの作成が終わっていません。";
-  if (st === "checking") return "確認しています…";
-  if (Cloud.syncError) return "前回の同期に失敗しました。電波の状態を確認してください。";
-  if (Cloud.syncing) return "同期しています…";
-  if (!Cloud.lastSyncAt) return "学習記録は暗号化して同期します。";
-  const d = new Date(Cloud.lastSyncAt);
-  return `学習記録は暗号化して同期しています（最終同期 ${pad2(d.getHours())}:${pad2(d.getMinutes())}）。`;
-}
 function viewSettings() {
   const st = S.settings;
   const segBtn = n => h("button", { class: "plain", type: "button", "aria-pressed": String(st.newPerDay === n), onclick: () => { st.newPerDay = n; persistSettings(); S.plan = null; render(); } }, `${n}問`);
@@ -1393,9 +1233,7 @@ function viewSettings() {
   const resetBtn = h("button", { class: "btn ghost block danger", type: "button", onclick: async () => {
     if (!resetArmed) { resetArmed = true; resetBtn.textContent = "もう一度タップすると、すべての学習記録を消去します"; setTimeout(() => { resetArmed = false; if (resetBtn.isConnected) resetBtn.textContent = "学習記録を消去する"; }, 4000); return; }
     resetArmed = false; S.cards = {}; S.log = []; S.mem = { m: 1, s0: 1, n: 0, nAt: 0, fitted: false, at: 0 }; LS.set(K.mem, S.mem);
-    S.wipedAt = Date.now(); LS.set(K.wipedAt, S.wipedAt);
     saveCards(); saveLog(); S.plan = null;
-    try { await Cloud.wipeRemote(); } catch {}
     toast("学習記録を消去しました。"); go("home");
   } }, "学習記録を消去する");
   const fileBtn = h("label", { class: "btn ghost block file-btn" }, "トーク履歴を追加・読み込み直す",
@@ -1406,19 +1244,9 @@ function viewSettings() {
     }, true) }, "読み込んだトーク履歴を削除する");
   const talkItem = s => h("div", { class: "talk-item" }, `${s.partner} とのトーク（${(s.count || 0).toLocaleString()}問）`);
   const note = (text, last) => h("p", { class: "note", style: last ? "margin:0" : "margin:0 0 6px" }, text);
-  const account = Cloud.signedIn()
-    ? [note(Cloud.email()), note(syncLine(), true),
-        h("div", { class: "btn-row" },
-          Cloud.status === "needsKey" ? h("button", { class: "btn ghost", type: "button", onclick: () => { S.vaultLater = false; go("home"); } }, "復元キーを入力") : null,
-          Cloud.status === "ready" ? h("button", { class: "btn ghost", type: "button", onclick: () => Cloud.sync() }, "今すぐ同期") : null,
-          h("button", { class: "btn ghost", type: "button", onclick: async () => { await Cloud.signOut(); toast("ログアウトしました。"); go("home"); } }, "ログアウト")),
-        h("button", { class: "link danger", style: "padding-left:0;margin-top:6px", type: "button", onclick: () => { DELETE.understood = false; go("deleteAccount"); } }, "アカウントを削除する")]
-    : [note(syncLine(), true), Cloud.configured() ? h("div", { class: "btn-row" }, h("button", { class: "btn primary", type: "button", onclick: () => go("login") }, "ログイン")) : null];
-
   return h("div", { class: "view" },
     h("div", { class: "bar" }, navBtn("back", "戻る", () => go("home")), h("h1", { style: "font-size:1.125rem" }, "設定")),
-    h("section", { style: "border-top:0;padding-top:4px" }, h("h2", null, "アカウント"), account),
-    h("section", null, h("h2", null, "翻訳と採点"),
+    h("section", { style: "border-top:0;padding-top:4px" }, h("h2", null, "翻訳と採点"),
       h("div", { class: "row-set" }, h("span", null, "前後のやり取りも踏まえて訳す"), sw(st.sendContext, "前後のやり取りも踏まえて訳す", () => { st.sendContext = !st.sendContext; persistSettings(); })),
       h("p", { class: "note", style: "margin:8px 0 0" }, "オンにすると、対象の発言の前3件・後ろ2件（同じ日のやり取り）も、相手の発言を含めてAIに送ります。話し手の名前は送りません。")),
     h("section", null, h("h2", null, "あなたの英語レベル"),
@@ -1450,12 +1278,13 @@ function viewSettings() {
     h("section", null, h("h2", null, "データの取り扱いについて"),
       h("h3", { class: "data-h" }, "トーク履歴の保管"),
       note("トーク履歴はお使いの端末内のみに保存され、サーバーには送信・保管されません。"),
-      h("h3", { class: "data-h" }, "学習・回答履歴の暗号化"),
-      note("学習・回答データは端末側で暗号化した上でサーバーに保存されます。運営者であっても内容は閲覧できません。なお、復元キーを紛失された場合、運営側からデータを復元することはできませんのでご注意ください。"),
+      h("h3", { class: "data-h" }, "学習・回答履歴の保管"),
+      note("学習・回答データはお使いの端末内のみに保存され、サーバーには送信・保管されません。アプリを削除したり端末を替えたりすると、データは消えます。"),
       h("h3", { class: "data-h" }, "外部AI（OpenAI API）との連携"),
       // 前後の文脈は、設定でオフにしているときは送らないので、文面からも外す
       note(`採点やお手本の作成にあたり、ユーザーの発言や回答、過去の提示例、設定レベル${st.sendContext ? "、前後の文脈" : ""}が、読み上げの音声の作成にあたり、お手本などの英文が、運営サーバーを経由してOpenAI社のAPIへ一時送信されます。このデータが運営サーバーに残ることはありません。`),
       note("読み上げの音声はAIによる合成音声です。作成した音声はお使いの端末内に保存し、繰り返し使います。"),
+      note("使いすぎを防ぐため、端末ごとに作ったランダムなIDと1日の利用回数をサーバーに記録します。"),
       h("h3", { class: "data-h" }, "AI出力に関する注意事項"),
       note("AIによる模範解答や採点結果は誤りを含む場合があります。あくまで参考情報としてご利用ください。"),
       hasConsent()
@@ -1467,64 +1296,11 @@ function viewSettings() {
            h("div", { class: "btn-row" },
              h("button", { class: "btn ghost", type: "button", onclick: () => { S.consentFrom = "settings"; go("consent"); } }, "送る内容を見て同意する"))]),
     h("section", null, resetBtn),
+    adminSection(),
     h("div", { style: "height:24px" }));
 }
 
-
-/* ============ 同期のつなぎ込み ============ */
-// サーバーに送る学習記録。端末だけの情報（トーク履歴の位置・相手の発言）は含めない
-const CARD_FIELDS = ["id", "ja", "d", "en", "alts", "tip", "ph", "phj", "created", "ans", "S", "last", "lapses", "u"];
-function cardPayload(id) {
-  const c = S.cards[id];
-  if (!c) return null;
-  const o = {};
-  for (const f of CARD_FIELDS) if (c[f] !== undefined) o[f] = c[f];
-  return o;
-}
-const logKey = e => e.id + "|" + e.t + "|" + e.k;
-const cloudHooks = {
-  store: Store,
-  changed(quiet) { if (!S.ready) return; if (quiet && S.view === "quiz") return; if (S.view !== "quiz") render(); },
-  cardIds: () => Object.keys(S.cards),
-  dayKeys: () => [...new Set(S.log.map(e => dayKey(e.t)))],
-  cardPayload,
-  dayEvents: day => S.log.filter(e => dayKey(e.t) === day),
-  metaPayload: () => ({ at: S.metaAt, wipedAt: S.wipedAt, settings: { newPerDay: S.settings.newPerDay, rate: S.settings.rate, autoSpeak: S.settings.autoSpeak, sendContext: S.settings.sendContext, level: S.settings.level } }),
-  async resetLocalLearning() {
-    S.cards = {}; S.log = []; S.plan = null;
-    await Store.set("cards", S.cards); await Store.set("log", S.log);
-  },
-  // ほかの端末の変更を取り込む
-  mergeRemote({ cards, days, meta }) {
-    let changed = false;
-    if (meta && (meta.wipedAt || 0) > (S.wipedAt || 0)) {
-      // ほかの端末で「学習記録を消去」された
-      S.cards = {}; S.log = []; S.wipedAt = meta.wipedAt; LS.set(K.wipedAt, S.wipedAt); changed = true;
-    }
-    for (const rc of cards) {
-      if (!rc || !rc.id) continue;
-      const lc = S.cards[rc.id];
-      if (rc.deleted) { if (lc && (rc.u || 0) > (lc.u || 0)) { delete S.cards[rc.id]; changed = true; } continue; }
-      if (!lc || (rc.u || 0) > (lc.u || 0)) {
-        const it = S.poolIndex.get(rc.id);
-        S.cards[rc.id] = { ...rc, src: lc?.src ?? it?.src ?? null, mi: lc?.mi ?? it?.mi ?? null };
-        changed = true;
-      }
-    }
-    if (days.length) {
-      const have = new Set(S.log.map(logKey));
-      for (const d of days) for (const e of d.events || []) if (e && e.id && e.t && e.k && e.t > (S.wipedAt || 0) && !have.has(logKey(e))) { S.log.push(e); have.add(logKey(e)); changed = true; }
-      S.log.sort((a, b) => a.t - b.t);
-    }
-    if (meta && meta.settings && (meta.at || 0) > (S.metaAt || 0)) {
-      Object.assign(S.settings, meta.settings); S.metaAt = meta.at;
-      LS.set(K.settings, S.settings); LS.set(K.metaAt, S.metaAt); changed = true;
-    }
-    if (changed) { replayAll(); saveCards(); saveLog(); S.plan = null; scheduleRefit(); }
-  }
-};
-
-/* ============ バックアップ ============ */
+/* ============ 以前の版の記録 ============ */
 // 以前の版（復習間隔だけを持っていた記録）を、回答履歴の形に変換する
 function convertLegacy() {
   const have = new Set(S.log.map(e => e.id));
@@ -1544,7 +1320,6 @@ function convertLegacy() {
 async function boot() {
   const st = LS.get(K.settings); if (st) { delete st.model; Object.assign(S.settings, st); }
   const mem = LS.get(K.mem); if (mem) Object.assign(S.mem, mem);
-  S.metaAt = LS.get(K.metaAt) || 0; S.wipedAt = LS.get(K.wipedAt) || 0;
   S.aiConsent = LS.get(K.aiConsent) || null;
   render();
   await Store.init();
@@ -1567,11 +1342,10 @@ async function boot() {
   }
   S.ready = true; render();
   onSharedText(onShared);
-  try { await Cloud.init(cloudHooks); } catch (e) { console.warn("cloud init failed"); }
-  render();
+  Cloud.init();
   setTimeout(() => { fitModel(false); S.plan = null; if (S.view === "home") render(); }, 300);
 }
-if (typeof window !== "undefined" && window.__TK_TEST) window.__tk = { S, CAL, Cloud, TTS, wipeThisDevice, render, go, handleBack, onShared, replayAll, fitModel, makePlan, pickFresh, flushAll, levelOf, dueOf, rNow, DAY, startOfDay, newCard, step, indexPool };
+if (typeof window !== "undefined" && window.__TK_TEST) window.__tk = { S, CAL, Cloud, TTS, render, go, handleBack, onShared, replayAll, fitModel, makePlan, pickFresh, flushAll, levelOf, dueOf, rNow, DAY, startOfDay, newCard, step, indexPool };
 onBackButton(handleBack);
 boot();
 if (!isNative() && "serviceWorker" in navigator && /^https?:$/.test(location.protocol) && !/localhost|127\.0\.0\.1/.test(location.hostname)) navigator.serviceWorker.register("sw.js").catch(() => {});
