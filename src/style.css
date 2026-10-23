@@ -11,6 +11,7 @@
   --me-ink: #165E83;
   --on-me: #FFFFFF;
   --me-soft: #E3EDF1;
+  --fav: #B07D00;           /* お気に入り（金色）。白・選択中のセルとも 3:1 以上 */
   --seg-on: #FFFFFF;
   --ok: #1F7A4D;
   --close: #8A5A00;
@@ -28,7 +29,7 @@
   :root:not([data-theme="light"]) {
     color-scheme: dark;
     --bg: #0F1417; --surface: #172026; --ink: #E6EBEE; --muted: #A9B3BA; --line: #26323A;
-    --me: #2B7DA8; --me-ink: #6FB3D6; --on-me: #FFFFFF; --me-soft: #1B3442; --seg-on: #2E3D47;
+    --me: #2B7DA8; --me-ink: #6FB3D6; --on-me: #FFFFFF; --me-soft: #1B3442; --seg-on: #2E3D47; --fav: #E2B93B;
     --ok: #5CC48E; --close: #E3AE52; --ng: #F08376;
     --ok-soft: #16301F; --close-soft: #36290F; --ng-soft: #3A1E1A;
   }
@@ -36,7 +37,7 @@
 :root[data-theme="dark"] {
   color-scheme: dark;
   --bg: #0F1417; --surface: #172026; --ink: #E6EBEE; --muted: #A9B3BA; --line: #26323A;
-  --me: #2B7DA8; --me-ink: #6FB3D6; --on-me: #FFFFFF; --me-soft: #1B3442; --seg-on: #2E3D47;
+  --me: #2B7DA8; --me-ink: #6FB3D6; --on-me: #FFFFFF; --me-soft: #1B3442; --seg-on: #2E3D47; --fav: #E2B93B;
   --ok: #5CC48E; --close: #E3AE52; --ng: #F08376;
   --ok-soft: #16301F; --close-soft: #36290F; --ng-soft: #3A1E1A;
 }
@@ -101,6 +102,10 @@ a { color: var(--me-ink); }
 .icon-btn { flex: none; width: 40px; height: 40px; border-radius: 50%; border: 1px solid var(--line); background: var(--surface); color: var(--me-ink); display: grid; place-items: center; padding: 0; }
 .icon-btn:active { background: var(--me-soft); }
 .icon-btn svg { width: 20px; height: 20px; }
+.icon-btn.star { color: var(--muted); }
+.icon-btn.star.on { color: var(--fav); border-color: var(--fav); }
+.q-line { display: flex; align-items: center; justify-content: flex-end; gap: 8px; width: 100%; }
+.q-line .bubble { max-width: calc(84% - 48px); }
 
 /* composer */
 .composer { position: sticky; bottom: 0; margin: 12px -16px 0; padding: 12px 16px calc(12px + env(safe-area-inset-bottom, 0px)); background: var(--bg); border-top: 1px solid var(--line); }
@@ -223,6 +228,8 @@ section h2 + .data-h { margin-top: 0; }
 .dot.s12 { width: 12px; height: 12px; }
 .dot.m { width: 14px; height: 14px; }
 .dot.m.plan, .dot.s9.plan, .dot.s12.plan { box-shadow: inset 0 0 0 1.5px var(--plan-ring); }
+.dot.fav { outline: 2px solid var(--fav); outline-offset: 1px; }
+.mdots .dot.fav { outline-width: 1.5px; outline-offset: 0; }
 
 /* ---- ホーム ---- */
 .today { display: flex; flex-direction: column; gap: 2px; padding: 4px 0 12px; }

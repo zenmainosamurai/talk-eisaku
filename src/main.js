@@ -25,6 +25,8 @@ const ICON = {
   gear: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>',
   mic: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0"/><path d="M12 18v3"/></svg>',
   stop: '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="7" y="7" width="10" height="10" rx="2"/></svg>',
+  star: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M12 3.5l2.6 5.3 5.8.8-4.2 4.1 1 5.8L12 16.8l-5.2 2.7 1-5.8-4.2-4.1 5.8-.8z"/></svg>',
+  starOn: '<svg viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M12 3.5l2.6 5.3 5.8.8-4.2 4.1 1 5.8L12 16.8l-5.2 2.7 1-5.8-4.2-4.1 5.8-.8z"/></svg>',
   speak: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9v6h4l5 4V5L8 9H4z"/><path d="M16.5 8.5a5 5 0 0 1 0 7"/><path d="M19 6a8.5 8.5 0 0 1 0 12"/></svg>',
   prev: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg>',
   next: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>'
@@ -431,6 +433,25 @@ function ttsErrorCopy(code) {
 
 const speakBtn = text => h("button", { class: "icon-btn", type: "button", "aria-label": "読み上げる", html: ICON.speak, onclick: () => TTS.speak(text) });
 
+/* ============ お気に入り ============ */
+// 学習記録に card.fav として残す。「覚えた」を押す前の新しい表現は、覚えたときに付ける
+const favPending = new Set();
+const isFav = id => (S.cards[id] ? !!S.cards[id].fav : favPending.has(id));
+function toggleFav(id) {
+  const c = S.cards[id];
+  if (c) { if (c.fav) delete c.fav; else c.fav = true; touch(c); saveCards(); }
+  else if (favPending.has(id)) favPending.delete(id);
+  else favPending.add(id);
+}
+// ☆ボタン。押してもその場で形を変えるだけにし、画面は作り直さない（入力中の回答や音声入力を止めないため）
+function starBtn(id) {
+  const b = h("button", { class: "icon-btn star", type: "button", "aria-label": "お気に入り", onclick: () => { toggleFav(id); paint(); } });
+  const paint = () => { const on = isFav(id); b.classList.toggle("on", on); b.setAttribute("aria-pressed", String(on)); b.innerHTML = on ? ICON.starOn : ICON.star; };
+  paint();
+  return b;
+}
+const favCls = c => (c && c.fav ? " fav" : "");
+
 // 発音しない要素（lol・haha・絵文字・顔文字など）を取り除く
 function speakable(s) {
   if (!s) return s;
@@ -596,6 +617,7 @@ function learned() {
   const now = Date.now(), ev = { id: c0.id, t: now, k: "learn" };
   const st = step(null, ev, S.mem);
   const c = { ...c0, created: now, S: st.S, last: st.last, lapses: 0 };
+  if (favPending.delete(c.id)) c.fav = true;
   S.cards[c.id] = c; S.log.push(ev); touch(c); saveCards(); saveLog();
   if (!ss.first[c.id]) ss.first[c.id] = "learned";
   ss.lesson = null;
@@ -636,6 +658,7 @@ function commit() {
   if (st) { ev.p = Math.round(R((r.now - st.last) / DAY, st.S) * 1000) / 1000; ev.dt = Math.round((r.now - st.last) / DAY * 100) / 100; }
   const ns = step(st, ev, S.mem);
   const final = { ...c, S: ns.S, last: ns.last, lapses: ns.lapses };
+  if (isFav(final.id)) final.fav = true; else delete final.fav; // 答えている間に☆を押したときも反映する
   S.cards[final.id] = final; S.log.push(ev); touch(final); saveCards(); saveLog();
   if (!ss.first[final.id]) ss.first[final.id] = r.chosen;
   if (r.chosen === "wrong") {
@@ -819,7 +842,7 @@ function viewHome() {
 }
 
 /* --- カレンダー（月・週・日） --- */
-const CAL = { mode: "month", sel: startOfDay(Date.now()), open: null, tap: { day: 0, t: 0 } };
+const CAL = { mode: "month", sel: startOfDay(Date.now()), open: null };
 function calIndex() {
   const now = Date.now(), today = startOfDay(now);
   const done = new Map();
@@ -911,11 +934,8 @@ function attachGestures(el) {
     if (e.touches.length === 0) { pinch = null; swipe = null; }
   }, { passive: true });
 }
-function tapDay(day) {
-  const t = Date.now();
-  if (CAL.tap.day === day && t - CAL.tap.t < 400) { CAL.tap = { day: 0, t: 0 }; CAL.sel = day; CAL.mode = "day"; render(); return; }
-  CAL.tap = { day, t }; CAL.sel = day; render();
-}
+// 月の表示で日付をタップしたら、その日の日表示に移る
+function tapDay(day) { CAL.sel = day; CAL.mode = "day"; CAL.open = null; render(); }
 function monthView(ix) {
   const sel = new Date(CAL.sel), y = sel.getFullYear(), mo = sel.getMonth();
   const lead = new Date(y, mo, 1).getDay(), nDays = new Date(y, mo + 1, 0).getDate();
@@ -924,7 +944,7 @@ function monthView(ix) {
   for (let d = 1; d <= nDays; d++) {
     const day = new Date(y, mo, d).getTime();
     const { done, plan } = dayDots(ix, day);
-    const all = [...done.map(x => "l" + x.lv), ...plan.map(() => "plan")];
+    const all = [...done.map(x => "l" + x.lv + favCls(x.c)), ...plan.map(x => "plan" + favCls(x.c))];
     const cls = ["mcell", day === ix.today ? "today" : "", day === CAL.sel ? "sel" : "", day > ix.today ? "future" : ""].filter(Boolean).join(" ");
     cells.push(h("button", { class: cls, type: "button", "aria-pressed": String(day === CAL.sel),
       "aria-label": `${mo + 1}月${d}日、${done.length}問` + (plan.length ? `、復習予定${plan.length}問` : ""), onclick: () => tapDay(day) },
@@ -943,7 +963,7 @@ function monthSummary(ix) {
       h("span", null, [done.length ? `${done.length}問` : "", plan.length ? `復習予定${plan.length}問` : ""].filter(Boolean).join("、")),
       h("span", { class: "grow", style: "flex:1" }),
       h("button", { class: "link", type: "button", onclick: () => { CAL.mode = "day"; render(); } }, "日表示で見る")),
-    h("div", { class: "dots", "aria-hidden": "true" }, [...done.map(x => h("span", { class: "dot m l" + x.lv })), ...plan.map(() => h("span", { class: "dot m plan" }))]),
+    h("div", { class: "dots", "aria-hidden": "true" }, [...done.map(x => h("span", { class: "dot m l" + x.lv + favCls(x.c) })), ...plan.map(x => h("span", { class: "dot m plan" + favCls(x.c) }))]),
     weak ? h("p", { class: "note", style: "margin:0" }, `まだ不安定な表現が${weak}つあります。`) : null);
 }
 function weekView(ix) {
@@ -955,8 +975,8 @@ function weekView(ix) {
     const open = CAL.open && CAL.open.day === day ? CAL.open : null;
     const pick = id => () => { CAL.open = open && open.id === id ? null : { day, id }; CAL.sel = day; render(); };
     const dots = [
-      ...done.map(x => h("button", { class: "wdot" + (open && open.id === x.c.id ? " picked" : ""), type: "button", "aria-label": `${LV_NAME[x.lv]}：${x.c.ja}`, onclick: pick(x.c.id) }, h("span", { class: "dot m l" + x.lv }))),
-      ...plan.map(x => h("button", { class: "wdot" + (open && open.id === x.c.id ? " picked" : ""), type: "button", "aria-label": `復習予定：${x.c.ja}`, onclick: pick(x.c.id) }, h("span", { class: "dot m plan" })))
+      ...done.map(x => h("button", { class: "wdot" + (open && open.id === x.c.id ? " picked" : ""), type: "button", "aria-label": `${x.c.fav ? "お気に入り、" : ""}${LV_NAME[x.lv]}：${x.c.ja}`, onclick: pick(x.c.id) }, h("span", { class: "dot m l" + x.lv + favCls(x.c) }))),
+      ...plan.map(x => h("button", { class: "wdot" + (open && open.id === x.c.id ? " picked" : ""), type: "button", "aria-label": `${x.c.fav ? "お気に入り、" : ""}復習予定：${x.c.ja}`, onclick: pick(x.c.id) }, h("span", { class: "dot m plan" + favCls(x.c) })))
     ];
     const count = [done.length ? `${done.length}問` : "", plan.length ? `予定${plan.length}問` : ""].filter(Boolean).join("・");
     rows.push(h("div", { class: "wrow" + (open ? " open" : "") },
@@ -991,7 +1011,7 @@ function dayItems(list, ix) {
         h("div", { class: "ja" }, x.c.ja),
         h("div", { class: "en", lang: "en" }, smart(x.c.en)),
         h("div", { class: "meta" }, (x.c.lapses ? `まちがい${x.c.lapses}回。` : "") + nextLine(x.c, ix.now))),
-      speakBtn(x.c.en)));
+      starBtn(x.c.id), speakBtn(x.c.en)));
   }
   return groups;
 }
@@ -1039,7 +1059,7 @@ function viewQuiz() {
   const thread = h("div", { class: "thread" },
     base.d ? h("div", { class: "date-chip" }, fmtDate(base.d)) : null,
     ctxRows,
-    h("div", { class: "row me" }, h("div", { class: "bubble mine" }, base.ja)));
+    h("div", { class: "row me" }, h("div", { class: "q-line" }, starBtn(id), h("div", { class: "bubble mine" }, base.ja))));
   if (ss.phase !== "ask" && ss.kind !== "new") {
     if (ss.giveUp) thread.append(h("div", { class: "row me" }, h("div", { class: "under" }, "答えを見ました")));
     else thread.append(h("div", { class: "row me" }, h("div", { class: "bubble en", lang: "en" }, ss.shown)));
