@@ -46,7 +46,7 @@ export const Store = {
 };
 
 // 読み上げの音声（OpenAI で作った mp3）。端末の中だけに保存し、同じ英文はもう作らずに使い回す
-const AUDIO_DB = "talk-eisaku-audio", AUDIO_MAX = 500;
+const AUDIO_DB = "talk-eisaku-audio", AUDIO_MAX = 3000; // 1件 30〜70KB ほど。3000件で最大 約85〜210MB
 const done = r => new Promise((res, rej) => { r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); });
 export const AudioCache = {
   db: null,
