@@ -427,6 +427,7 @@ const TTS = {
 };
 function ttsErrorCopy(code) {
   if (code === "unconfigured") return "サーバーの設定がまだのため、読み上げが使えません。";
+  if (code === "need_invite") return "読み上げるには、合言葉の入力が必要です。「はじめる」から入力できます。";
   if (["daily_limit", "family_limit", "offline", "network", "overloaded"].includes(code)) return errorCopy(code);
   return "読み上げできませんでした。もう一度試してください。";
 }
@@ -483,6 +484,8 @@ function setConsent(on) {
 }
 // 「はじめる」：同意がまだなら、先に同意画面を出す
 function requestStart(plan) {
+  // 身内用：合言葉がまだなら、先に合言葉を入れてもらう（管理者の端末はいらない）
+  if (!Cloud.hasInvite() && !Cloud.isAdmin()) { S.pendingPlan = plan; go("invite"); return; }
   if (hasConsent()) { startSession(plan); return; }
   S.pendingPlan = plan; S.consentFrom = "start"; go("consent");
 }
@@ -525,10 +528,11 @@ async function teach(item) {
   if (!r || typeof r.model !== "string" || !r.model.trim()) throw { code: "invalid_json" };
   return { model: speakable(r.model.trim()), alts: Array.isArray(r.alts) ? r.alts.map(str).map(speakable).filter(Boolean).slice(0, 2) : [], point: str(r.point), phrase: speakable(str(r.phrase)), phrase_ja: str(r.phrase_ja) };
 }
-const PERMANENT = new Set(["unconfigured", "no_consent"]);
+const PERMANENT = new Set(["unconfigured", "no_consent", "need_invite"]);
 function errorCopy(code) {
   if (code === "unconfigured") return "サーバーの設定がまだのため、お手本と採点が使えません。";
   if (code === "no_consent") return "お手本と採点を使うには、AIへの送信に同意してください。";
+  if (code === "need_invite") return "合言葉を確認できませんでした。もう一度入力してください。";
   if (code === "daily_limit") return "この端末の今日の利用上限に達しました。明日また使えます。";
   if (code === "family_limit") return "今日はみんなの利用上限に達しました。明日また使えます。";
   if (code === "rate_limited") return "短時間に使いすぎたため、少し待ってから、もう一度試してください。";
@@ -688,7 +692,7 @@ function render() {
   if (!S.ready) { app.replaceChildren(h("div", { class: "view" }, h("p", { class: "loading" }, "読み込んでいます…"))); return; }
   const v = S.view;
   const node = v === "setup" ? viewSetup() : v === "quiz" ? viewQuiz() : v === "done" ? viewDone()
-    : v === "weak" ? viewWeak() : v === "settings" ? viewSettings() : v === "consent" ? viewConsent() : viewHome();
+    : v === "weak" ? viewWeak() : v === "settings" ? viewSettings() : v === "consent" ? viewConsent() : v === "invite" ? viewInvite() : viewHome();
   app.replaceChildren(node);
 }
 function go(view) { stopListening(); closeConfirm(); S.view = view; if (view === "home") S.plan = null; render(); window.scrollTo(0, 0); }
@@ -720,6 +724,7 @@ function handleBack() {
   }
   if (v === "done") { S.session = null; go("home"); return true; }
   if (v === "settings" || v === "weak") { go("home"); return true; }
+  if (v === "invite") { S.pendingPlan = null; go("home"); return true; }
   if (v === "consent") {
     const to = S.consentFrom === "settings" ? "settings" : "home";
     S.pendingPlan = null; S.consentFrom = null; go(to); return true;
@@ -1097,8 +1102,10 @@ function errorBubble(code) {
       h("div", { class: "btn-row" },
         PERMANENT.has(code) ? h("button", { class: "btn ghost", type: "button", onclick: () => {
           if (S.session) quit();
-          if (code === "no_consent") { S.consentFrom = "home"; go("consent"); } else go("settings");
-        } }, code === "no_consent" ? "送る内容を見る" : "設定を開く") : null,
+          if (code === "no_consent") { S.consentFrom = "home"; go("consent"); }
+          else if (code === "need_invite") { Cloud.clearInvite(); go("invite"); }
+          else go("settings");
+        } }, code === "no_consent" ? "送る内容を見る" : code === "need_invite" ? "合言葉を入力する" : "設定を開く") : null,
         !PERMANENT.has(code) && code !== "refused" ? h("button", { class: "btn ghost", type: "button", onclick: () => (ss.kind === "new" ? loadLesson() : check(ss.giveUp)) }, "もう一度") : null,
         h("button", { class: "btn ghost", type: "button", onclick: nextQuestion }, "この問題をとばす"))));
 }
@@ -1184,6 +1191,36 @@ function viewWeak() {
     h("div", { class: "bar" }, navBtn("back", "戻る", () => go("home")), h("h1", { style: "font-size:1.125rem" }, "苦手な表現")),
     list.length ? h("div", null, h("p", { class: "note" }, `${list.length}件。まちがえた回数が多い順です。`), list.map(cardItem))
       : h("p", { class: "empty" }, "まだ苦手な表現はありません。問題に答えると、まちがえた表現がここにたまります。"));
+}
+
+/* --- 合言葉（身内用）：はじめて「はじめる」を押したときに入れてもらう --- */
+const INVITE = { busy: false };
+function viewInvite() {
+  const plan = S.pendingPlan;
+  const back = () => { S.pendingPlan = null; go("home"); };
+  const codeIn = h("input", { class: "text-in", id: "invite", type: "text", autocomplete: "off", autocapitalize: "off", spellcheck: "false" });
+  const next = h("button", { class: "btn primary block", type: "button", disabled: INVITE.busy, onclick: async () => {
+    const code = codeIn.value.trim();
+    if (!code) { toast("合言葉を入力してください。"); return; }
+    INVITE.busy = true; next.disabled = true;
+    try {
+      await Cloud.inviteLogin(code);
+      INVITE.busy = false; S.pendingPlan = null;
+      if (plan) requestStart(plan); else go("home");
+    } catch (e) {
+      INVITE.busy = false; next.disabled = false;
+      const c = e && e.code;
+      toast(c === "wrong_invite" ? "合言葉が違います。" : c === "too_many_tries" ? "試した回数が多すぎます。明日また試してください。" : errorCopy(c), 5000);
+    }
+  } }, "次へ");
+  return h("div", { class: "view" },
+    h("div", { class: "bar" }, navBtn("back", "戻る", back)),
+    h("div", { class: "intro" },
+      h("p", { class: "title", style: "font-size:1.375rem" }, "合言葉を入力してください"),
+      h("p", null, "このアプリは、招待された人だけが使えます。教えてもらった合言葉を入力してください。")),
+    h("section", { style: "border-top:0" },
+      h("label", { class: "field", for: "invite" }, "合言葉"), codeIn,
+      h("div", { style: "margin-top:12px" }, next)));
 }
 
 /* --- AIに送る前の同意 --- */

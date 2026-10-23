@@ -57,6 +57,9 @@ export function createClient() {
           const fail = code => ({ data: null, error: { context: { json: async () => ({ error: code }) } } });
           if (window.__offline) return { data: null, error: { context: null } };
           if (body.kind === "admin") return body.password === (window.__adminPassword || "secret") ? { data: { token: "tok-" + body.device }, error: null } : fail("wrong_password");
+          // 合言葉：window.__inviteCode を決めたときだけ必要にする
+          if (body.kind === "invite") return !window.__inviteCode ? { data: { token: "open" }, error: null } : body.code === window.__inviteCode ? { data: { token: "inv-" + body.device }, error: null } : fail("wrong_invite");
+          if (window.__inviteCode && body.admin !== "tok-" + body.device && body.invite !== "inv-" + body.device) return fail("need_invite");
           if (window.__familyFail) return fail(window.__familyFail);
           if (body.kind === "tts") { (window.__ttsCalls = window.__ttsCalls || []).push(body.text); return { data: new Blob([silentWav()], { type: "application/octet-stream" }), error: null }; }
           (window.__coachCalls = window.__coachCalls || []).push(body);

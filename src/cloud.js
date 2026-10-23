@@ -1,11 +1,11 @@
 // 身内用（family ブランチ）：ログインせずに、Edge Function（family）で AIコーチと読み上げを使う
 // 学習記録とトーク履歴はこの端末の中だけに置き、サーバーには送らない
-// サーバーに送るのは、AIへの依頼（問題文・回答・前後のやり取りなど）と読み上げる英文、端末ごとのランダムな ID、管理者の印だけ
+// サーバーに送るのは、AIへの依頼（問題文・回答・前後のやり取りなど）と読み上げる英文、端末ごとのランダムな ID、合言葉と管理者の印だけ
 import { createClient } from "@supabase/supabase-js";
 import { SUPABASE_URL, SUPABASE_ANON_KEY } from "./config.js";
 import { LS } from "./store.js";
 
-const DEVICE_KEY = "tk.device.v1", ADMIN_KEY = "tk.admin.v1";
+const DEVICE_KEY = "tk.device.v1", ADMIN_KEY = "tk.admin.v1", INVITE_KEY = "tk.invite.v1";
 // 端末ごとのランダムな ID（1日の利用回数を数えるためだけに使う）
 function newDeviceId() {
   if (crypto.randomUUID) return crypto.randomUUID();
@@ -28,12 +28,14 @@ export const Cloud = {
   },
   // 管理者パスワードを入れた端末か（上限なしで使える）
   isAdmin() { return !!LS.get(ADMIN_KEY); },
+  // 合言葉を入れた端末か（管理者の端末は合言葉なしで使える）
+  hasInvite() { return !!LS.get(INVITE_KEY); },
 
   async call(body) {
     if (!this.sb) throw { code: "unconfigured" };
     if (typeof navigator !== "undefined" && navigator.onLine === false) throw { code: "offline" };
-    const admin = LS.get(ADMIN_KEY);
-    return this.sb.functions.invoke("family", { body: { ...body, device: this.device(), ...(admin ? { admin } : {}) } });
+    const admin = LS.get(ADMIN_KEY), invite = LS.get(INVITE_KEY);
+    return this.sb.functions.invoke("family", { body: { ...body, device: this.device(), ...(admin ? { admin } : {}), ...(invite ? { invite } : {}) } });
   },
 
   // ---- AIコーチ ----
@@ -59,7 +61,16 @@ export const Cloud = {
     if (!data || typeof data.token !== "string") throw { code: "upstream_error" };
     LS.set(ADMIN_KEY, data.token);
   },
-  adminLogout() { LS.del(ADMIN_KEY); }
+  adminLogout() { LS.del(ADMIN_KEY); },
+
+  // ---- 合言葉：合っていれば、この端末用の印を保存する ----
+  async inviteLogin(code) {
+    const { data, error } = await this.call({ kind: "invite", code });
+    if (error) throw { code: await errorCode(error) };
+    if (!data || typeof data.token !== "string") throw { code: "upstream_error" };
+    LS.set(INVITE_KEY, data.token);
+  },
+  clearInvite() { LS.del(INVITE_KEY); }
 };
 
 // Edge Function のエラーから、サーバーが返したコードを取り出す

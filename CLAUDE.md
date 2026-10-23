@@ -10,6 +10,7 @@
 - AI（お手本・採点・読み上げ）は Edge Function `family` を使う。ログインがないので `verify_jwt` は false でデプロイする（`npx supabase functions deploy family --no-verify-jwt`）。指示文は `coach/prompts.ts` を共有しているので、指示文を変えたら `coach` と `family` の両方をデプロイする。
 - 誰でも呼べるため、端末ごとのランダムな ID（`tk.device.v1`）で1日の回数を数えて費用を抑える。端末ごと120回、全員の合計で600回まで（`FAMILY_DEVICE_LIMIT`・`FAMILY_GLOBAL_LIMIT`）。回数はテーブル `family_usage` と関数 `bump_family_usage` で数え、30日より前の記録は消す。
 - 管理者パスワード（Secrets の `FAMILY_ADMIN_PASSWORD`、利用者が登録する）を設定の一番下で入れた端末は、上限なしで全員の合計にも数えない。端末にはパスワードではなく、パスワードと端末IDから作った印（HMAC、`tk.admin.v1`）を保存する。パスワードは1台・1日10回まで試せる。
+- 合言葉：Secrets の `FAMILY_INVITE_CODE`（利用者が登録する）を決めたときは、合言葉を入れた端末と管理者の端末だけが AI を使える。はじめて「はじめる」を押したときに合言葉の画面（`viewInvite()`）を出し、合っていれば合言葉と端末IDから作った印（`tk.invite.v1`）を保存する。合言葉は全角・半角と前後の空白を区別しない。1台・1日10回まで試せる。合言葉を変えると、それまでの印は使えなくなり、「合言葉を入力する」から入れ直す。
 - AIへの送信の同意画面は残す（利用者の判断）。「データの取り扱いについて」の学習記録の項目は「学習・回答履歴の保管」にし、端末ごとの ID と回数をサーバーに記録することも書く。
 - アプリの名前と ID は `main` と同じ（同じ端末では入れ替わる）。Supabase のプロジェクトも `main` と同じで、`coach`・`tts`・`delete-account` は `main` のアプリのために残している。
 - `main` の変更を取り込むときは `git merge main`。下の方針のうち、ログイン・暗号化・同期・アカウントの削除の項目は `main` だけに当てはまる。

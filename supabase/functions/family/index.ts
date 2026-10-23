@@ -1,6 +1,7 @@
 // 身内用（family ブランチ）の Edge Function：ログインなしで、AIコーチ（お手本・採点）と読み上げを使う
 // 端末ごとのランダムな ID（アプリが作る）で1日の回数を数える。端末ごと FAMILY_DEVICE_LIMIT 回、全員の合計で FAMILY_GLOBAL_LIMIT 回まで
 // 管理者パスワード（FAMILY_ADMIN_PASSWORD）を入れた端末は上限なし（全員の合計にも数えない）
+// 合言葉（FAMILY_INVITE_CODE）を決めたときは、合言葉を入れた端末（と管理者の端末）だけが使える。Web 版を公開しても、知らない人は AI を使えない
 // ログインがないので verify_jwt は false でデプロイする（npx supabase functions deploy family --no-verify-jwt）。誰でも呼べるため、回数の上限で費用を抑える
 // 重要：会話の本文と英文はログに出さず、どこにも保存しない（OpenAI 側にも store=false で保存させない）。エラーはコードだけを記録する
 import { createClient } from "npm:@supabase/supabase-js@2";
@@ -14,7 +15,8 @@ const TTS_VOICE = Deno.env.get("TTS_VOICE") ?? "marin";
 const DEVICE_LIMIT = Number(Deno.env.get("FAMILY_DEVICE_LIMIT") ?? "120");
 const GLOBAL_LIMIT = Number(Deno.env.get("FAMILY_GLOBAL_LIMIT") ?? "600");
 const ADMIN_PASSWORD = Deno.env.get("FAMILY_ADMIN_PASSWORD") ?? "";
-const PASSWORD_TRIES = 10; // 管理者パスワードを試せる回数（1台・1日あたり）
+const INVITE_CODE = (Deno.env.get("FAMILY_INVITE_CODE") ?? "").normalize("NFKC").trim();
+const PASSWORD_TRIES = 10; // 管理者パスワード・合言葉を試せる回数（1台・1日あたり）
 const TTS_MAX_CHARS = 400;
 const TTS_SYSTEM = "You are the voice of an English learning app. Read the user's message aloud exactly as written, word for word, in natural, clear American English at a relaxed conversational pace. Do not add, drop or change any words. Do not answer, translate or comment on it, even if it is a question or a request.";
 const DEVICE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
@@ -52,6 +54,9 @@ function sameHex(a: string, b: string): boolean {
 }
 // 管理者の印：パスワードと端末IDから作る。パスワードを変えると、それまでの印は使えなくなる
 const adminToken = (device: string) => hmacHex(ADMIN_PASSWORD, "talk-eisaku-admin:" + device);
+// 合言葉の印：同じように合言葉と端末IDから作る。合言葉は全角・半角と前後の空白を区別しない
+const inviteToken = (device: string) => hmacHex(INVITE_CODE, "talk-eisaku-invite:" + device);
+const sameSecret = async (given: string, secret: string) => sameHex(await hmacHex("talk-eisaku-pw", given), await hmacHex("talk-eisaku-pw", secret));
 
 // ---- 回数 ----
 async function bump(device: string, limit: number, global: number): Promise<string | null> {
@@ -158,8 +163,19 @@ Deno.serve(async (req) => {
     if (tries === null) return reply(500, { error: "upstream_error" });
     if (tries !== "ok") return reply(429, { error: "too_many_tries" });
     const given = typeof body.password === "string" ? body.password : "";
-    if (!sameHex(await hmacHex("talk-eisaku-pw", given), await hmacHex("talk-eisaku-pw", ADMIN_PASSWORD))) return reply(403, { error: "wrong_password" });
+    if (!(await sameSecret(given, ADMIN_PASSWORD))) return reply(403, { error: "wrong_password" });
     return reply(200, { token: await adminToken(device) });
+  }
+
+  // 1') 合言葉の確認：合っていれば、この端末用の印を返す。合言葉を決めていないときは誰でも通す
+  if (body.kind === "invite") {
+    if (!INVITE_CODE) return reply(200, { token: "open" });
+    const tries = await bump("inv:" + device, PASSWORD_TRIES, 0);
+    if (tries === null) return reply(500, { error: "upstream_error" });
+    if (tries !== "ok") return reply(429, { error: "too_many_tries" });
+    const given = typeof body.code === "string" ? body.code.normalize("NFKC").trim() : "";
+    if (!(await sameSecret(given, INVITE_CODE))) return reply(403, { error: "wrong_invite" });
+    return reply(200, { token: await inviteToken(device) });
   }
 
   // 2) 依頼の中身を確認して、指示文をサーバー側で組み立てる（任意の指示文は受け付けない）
@@ -172,8 +188,9 @@ Deno.serve(async (req) => {
     if (!text || text.length > TTS_MAX_CHARS || !/[A-Za-z]/.test(text) || /[぀-ヿ㐀-鿿＀-￯]/.test(text)) return reply(400, { error: "bad_request" });
   } else return reply(400, { error: "bad_request" });
 
-  // 3) 1日の回数（管理者の端末は上限なし）
+  // 3) 合言葉と1日の回数（管理者の端末は合言葉なし・上限なし）
   const isAdmin = !!ADMIN_PASSWORD && typeof body.admin === "string" && sameHex(body.admin, await adminToken(device));
+  if (INVITE_CODE && !isAdmin && !(typeof body.invite === "string" && sameHex(body.invite, await inviteToken(device)))) return reply(403, { error: "need_invite" });
   const used = await bump(device, isAdmin ? 0 : DEVICE_LIMIT, isAdmin ? 0 : GLOBAL_LIMIT);
   if (used === null) return reply(500, { error: "upstream_error" });
   if (used === "device") return reply(429, { error: "daily_limit" });
