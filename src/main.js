@@ -76,7 +76,7 @@ function flushOne(key) {
 function flushAll() { for (const k of Object.keys(pending)) flushOne(k); }
 document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "hidden") { flushAll(); Cloud.flush(); }
-  else if (S.ready) Cloud.sync();
+  else { checkNewDay(); if (S.ready) Cloud.sync(); }
 });
 const saveCards = () => saveLater("cards");
 const saveLog = () => saveLater("log");
@@ -881,6 +881,16 @@ function viewHome() {
 
 /* --- カレンダー（月・週・日） --- */
 const CAL = { mode: "month", sel: startOfDay(Date.now()), open: null };
+// 日付が変わったら（アプリを開いたまま0時をまたいだとき）、今日の問題とカレンダーを新しい日に合わせる
+let shownDay = startOfDay(Date.now());
+function checkNewDay() {
+  const today = startOfDay(Date.now());
+  if (today === shownDay) return;
+  if (CAL.sel === shownDay) CAL.sel = today;
+  shownDay = today; S.plan = null;
+  if (S.ready && (S.view === "home" || S.view === "done")) render();
+}
+setInterval(checkNewDay, 60000);
 function calIndex() {
   const now = Date.now(), today = startOfDay(now);
   const done = new Map();
