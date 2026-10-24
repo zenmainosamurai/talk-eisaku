@@ -42,6 +42,12 @@ export const Cloud = {
     if (error || !data.session) throw { code: "bad_code" };
     await this.afterAuth(data.session);
   },
+  // 規約への同意を、アカウントの情報（user_metadata）に記録する
+  async saveTerms(version, at) {
+    const { data, error } = await this.sb.auth.updateUser({ data: { terms_version: version, terms_agreed_at: new Date(at).toISOString() } });
+    if (error) throw { code: "network" };
+    if (data && data.user) this.user = data.user;
+  },
   async signOut() {
     await this.flush();
     await this.sb.auth.signOut();

@@ -1,6 +1,7 @@
 // トーク英作：アプリ本体（Web版とスマホアプリ版で共通）
 import { LS, Store, AudioCache } from "./store.js";
 import { Cloud } from "./cloud.js";
+import { TERMS_URL, PRIVACY_URL } from "./config.js";
 import { Voice, Speech, isNative, onBackButton, onSharedText, shareTargetSupported } from "./native.js";
 
 /* ============ 基本ユーティリティ ============ */
@@ -61,7 +62,7 @@ function toast(msg, ms = 3800) {
 
 /* ============ 保存（この端末） ============ */
 // トーク履歴は端末の外に出さない。学習記録と回答履歴は、暗号化して Cloud が同期する
-const K = { settings: "tk.settings.v1", mem: "tk.memory.v1", metaAt: "tk.metaAt.v1", wipedAt: "tk.wipedAt.v1", aiConsent: "tk.aiConsent.v1", oldPool: "tk.pool.v1", oldCards: "tk.cards.v1" };
+const K = { settings: "tk.settings.v1", mem: "tk.memory.v1", metaAt: "tk.metaAt.v1", wipedAt: "tk.wipedAt.v1", aiConsent: "tk.aiConsent.v1", terms: "tk.terms.v1", oldPool: "tk.pool.v1", oldCards: "tk.cards.v1" };
 const pending = {};
 function saveLater(key, ms = 300) {
   clearTimeout(pending[key]);
@@ -108,6 +109,7 @@ const S = {
   settings: { ...DEFAULT_SETTINGS },
   metaAt: 0, wipedAt: 0, vaultLater: false,
   aiConsent: null,       // AIへの送信の同意 { v, at }。この端末にだけ保存し、サーバーには送らない
+  terms: null,           // 利用規約・プライバシーポリシーへの同意 { v, at, email?, uid? }。サーバーにもアカウントの情報として記録する
   pendingPlan: null, consentFrom: null,
   ready: false, plan: null, session: null, setup: null, micBlocked: false
 };
@@ -500,6 +502,24 @@ function speakable(s) {
 const CONSENT_VERSION = 3; // 2：送り先を Anthropic社から OpenAI社に替え、読み上げを加えた。3：読み上げの送り先を Google社に替えた
 const AI_NOTE = "AIの回答は誤ることがあります。";
 const hasConsent = () => !!(S.aiConsent && S.aiConsent.v >= CONSENT_VERSION);
+// 利用規約・プライバシーポリシーへの同意。内容を大きく変えたら TERMS_VERSION を上げて、ログイン中の人にも同意し直してもらう
+const TERMS_VERSION = 1;
+// ログインしている人が今の版に同意しているか。サーバーの記録か、この端末で同意した記録（同じアカウント）があればよい
+function termsOk() {
+  const u = Cloud.user; if (!u) return true;
+  if (((u.user_metadata || {}).terms_version || 0) >= TERMS_VERSION) return true;
+  const t = S.terms;
+  return !!(t && t.v >= TERMS_VERSION && (t.uid ? t.uid === u.id : !!t.email && t.email === (u.email || "").toLowerCase()));
+}
+function agreeTerms(fields) { S.terms = { v: TERMS_VERSION, at: Date.now(), ...fields }; LS.set(K.terms, S.terms); }
+// この端末で同意した記録を、アカウントの情報としてサーバーにも残す。送れなかったときは次に開いたときに送る
+async function pushTerms() {
+  const u = Cloud.user, t = S.terms;
+  if (!u || !termsOk() || !t || ((u.user_metadata || {}).terms_version || 0) >= t.v) return;
+  try { await Cloud.saveTerms(t.v, t.at); S.terms = { ...t, uid: u.id }; LS.set(K.terms, S.terms); } catch {}
+}
+const legalLink = (label, url) => (url ? h("a", { href: url, target: "_blank", rel: "noopener" }, label) : label);
+const legalLinks = () => [legalLink("利用規約", TERMS_URL), "と", legalLink("プライバシーポリシー", PRIVACY_URL)];
 function setConsent(on) {
   S.aiConsent = on ? { v: CONSENT_VERSION, at: Date.now() } : null;
   if (on) LS.set(K.aiConsent, S.aiConsent); else LS.del(K.aiConsent);
@@ -712,6 +732,7 @@ const app = document.getElementById("app");
 function shownView() {
   const v = S.view;
   if (v !== "setup" && v !== "login" && v !== "deleteAccount") {
+    if (!termsOk()) return "terms";
     if (Cloud.status === "needsSetup") return "vaultSetup";
     if (Cloud.status === "needsKey" && !S.vaultLater) return "vaultUnlock";
   }
@@ -721,7 +742,7 @@ function render() {
   if (!S.ready) { app.replaceChildren(h("div", { class: "view" }, h("p", { class: "loading" }, "読み込んでいます…"))); return; }
   const v = shownView();
   const node = v === "setup" ? viewSetup() : v === "login" ? viewLogin() : v === "vaultSetup" ? viewVaultSetup() : v === "vaultUnlock" ? viewVaultUnlock() : v === "quiz" ? viewQuiz() : v === "done" ? viewDone()
-    : v === "weak" ? viewWeak() : v === "settings" ? viewSettings() : v === "consent" ? viewConsent() : v === "deleteAccount" ? viewDeleteAccount() : viewHome();
+    : v === "weak" ? viewWeak() : v === "settings" ? viewSettings() : v === "consent" ? viewConsent() : v === "deleteAccount" ? viewDeleteAccount() : v === "terms" ? viewTerms() : viewHome();
   app.replaceChildren(node);
 }
 function go(view) { stopListening(); closeConfirm(); S.view = view; if (view === "home") S.plan = null; render(); window.scrollTo(0, 0); }
@@ -782,7 +803,7 @@ function viewSetup() {
         h("p", null, "あなたが実際にLINEで送ったメッセージが、英作文の問題になります。")),
       h("section", { style: "border-top:0" },
         h("ol", { class: "steps" },
-          h("li", null, `LINEで、練習に使いたい友だちとのトーク画面を開き、${LINE_EXPORT_MENU}を選びます。`),
+          h("li", null, `LINEで、練習に使いたい友だちとの1対1のトーク画面を開き、${LINE_EXPORT_MENU}を選びます。`),
           h("li", null, shareTargetSupported()
             ? "送信先の一覧から「トーク英作」を選ぶと、そのまま読み込めます。一覧にないときは、端末に保存（「ファイルに保存」など。機種によって名前が違います）してから、下のボタンでそのファイルを選びます。"
             : "送信先の一覧から、この端末に保存する方法（「ファイルに保存」など。機種によって名前が違います）を選び、下のボタンでそのファイルを選びます。",
@@ -825,6 +846,8 @@ function loadTalkText(text, name) {
   const parsed = parseLineExport(text);
   const names = Object.keys(parsed.speakers);
   if (!parsed.msgs.length || !names.length) { toast("LINEのトーク履歴として読み取れませんでした。「トーク履歴を送信」で作ったファイルを選んでください。", 6500); return; }
+  // グループのトークには対応しない（自分と相手の2人のトークだけ）。3人以上が話していたら読み込まない
+  if (names.length > 2) { toast("グループのトーク履歴には対応していません。1対1のトーク履歴を選んでください。", 6500); return; }
   const guess = Object.entries(parsed.speakers).filter(([n]) => n !== parsed.partner).sort((a, b) => b[1] - a[1])[0];
   stopListening(); closeConfirm();
   S.setup = { parsed, me: guess ? guess[0] : names[0], name: name || "トーク履歴" };
@@ -1235,6 +1258,24 @@ function viewWeak() {
       : h("p", { class: "empty" }, "まだ苦手な表現はありません。問題に答えると、まちがえた表現がここにたまります。"));
 }
 
+/* --- 利用規約への同意（ログイン中で、今の版にまだ同意していないとき） --- */
+function viewTerms() {
+  // 前に同意したことがあるか（このアカウントの記録だけを見る）。あれば「改定しました」と伝える
+  const u = Cloud.user || {}, t = S.terms;
+  const mine = !!t && (t.uid ? t.uid === u.id : !!t.email && t.email === (u.email || "").toLowerCase());
+  const before = (u.user_metadata || {}).terms_version || (mine ? t.v : 0);
+  return h("div", { class: "view" },
+    h("div", { class: "intro" },
+      h("p", { class: "title", style: "font-size:1.375rem" }, "利用規約とプライバシーポリシー"),
+      h("p", null, before ? "利用規約とプライバシーポリシーを改定しました。続けて使うには、内容を確認して同意してください。"
+        : "ログインして使うには、利用規約とプライバシーポリシーへの同意が必要です。")),
+    h("section", { style: "border-top:0" }, h("p", { class: "note", style: "margin:0" }, ...legalLinks(), "を読み、同意のうえで進んでください。")),
+    h("div", { style: "padding:8px 0 28px" },
+      h("div", { class: "btn-row", style: "margin-top:0" },
+        h("button", { class: "btn ghost", type: "button", onclick: async () => { await Cloud.signOut(); toast("ログアウトしました。"); go("home"); } }, "ログアウトする"),
+        h("button", { class: "btn primary", type: "button", onclick: () => { agreeTerms({ uid: Cloud.user.id }); pushTerms(); toast("同意しました。"); render(); } }, "同意する"))));
+}
+
 /* --- ログイン（メールに届く6桁のコード） --- */
 const LOGIN = { email: "", sent: false, busy: false };
 function viewLogin() {
@@ -1245,15 +1286,16 @@ function viewLogin() {
     const email = emailIn.value.trim();
     if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) { toast("メールアドレスを確認してください。"); return; }
     LOGIN.email = email; LOGIN.busy = true; render();
+    if (!LOGIN.sent) agreeTerms({ email: email.toLowerCase() }); // 「同意して確認コードを送る」を押した = 規約に同意した
     try { await Cloud.sendCode(email); LOGIN.sent = true; toast("確認コードを送りました。メールを確認してください。"); }
     catch (e) { toast(e && e.code === "rate_limited" ? "送信回数が多すぎます。少し待ってから、もう一度試してください。" : "確認コードを送れませんでした。"); }
     finally { LOGIN.busy = false; render(); }
-  } }, LOGIN.sent ? "コードを送り直す" : "確認コードを送る");
+  } }, LOGIN.sent ? "コードを送り直す" : "同意して確認コードを送る");
   const verify = h("button", { class: "btn primary block", type: "button", disabled: LOGIN.busy, onclick: async () => {
     const code = codeIn.value.normalize("NFKC").replace(/\D/g, ""); // 全角の数字で入れても通す
     if (code.length < 6) { toast("メールに届いたコードを入力してください。"); return; }
     LOGIN.busy = true; render();
-    try { await Cloud.verifyCode(LOGIN.email, code); LOGIN.sent = false; S.view = "home"; S.plan = null; }
+    try { await Cloud.verifyCode(LOGIN.email, code); LOGIN.sent = false; S.view = "home"; S.plan = null; pushTerms(); }
     catch { toast("コードが正しくないか、有効期限が切れています。"); }
     finally { LOGIN.busy = false; render(); }
   } }, "ログイン");
@@ -1264,6 +1306,7 @@ function viewLogin() {
       h("p", null, "お手本と採点を使うため、またほかの端末と学習記録を同期するために、ログインします。")),
     h("section", { style: "border-top:0" },
       h("label", { class: "field", for: "email" }, "メールアドレス"), emailIn,
+      LOGIN.sent ? null : h("p", { class: "note", style: "margin:12px 0 0" }, ...legalLinks(), "を読み、同意のうえで進んでください。"),
       h("div", { style: "margin-top:12px" }, LOGIN.sent ? null : send),
       LOGIN.sent ? [
         h("p", { class: "note", style: "margin:4px 0 12px" }, `${LOGIN.email} に届いた6桁のコードを入力してください。`),
@@ -1321,7 +1364,7 @@ async function wipeThisDevice() {
   for (const k of Object.keys(pending)) clearTimeout(pending[k]), delete pending[k];
   stopListening(); TTS.stop();
   Object.assign(S, { pool: null, cards: {}, log: [], mem: { m: 1, s0: 1, n: 0, nAt: 0, fitted: false, at: 0 }, settings: { ...DEFAULT_SETTINGS },
-    metaAt: 0, wipedAt: 0, aiConsent: null, pendingPlan: null, consentFrom: null, vaultLater: false, plan: null, session: null, setup: null });
+    metaAt: 0, wipedAt: 0, aiConsent: null, terms: null, pendingPlan: null, consentFrom: null, vaultLater: false, plan: null, session: null, setup: null });
   indexPool(); lessons.clear(); skippedNow.clear();
   await Promise.all(["pool", "cards", "log", "skips", "vaultKeys", "sync"].map(k => Store.del(k)));
   await AudioCache.clear();
@@ -1497,13 +1540,14 @@ function viewSettings() {
       h("div", { class: "howto" },
         h("h3", null, "LINEからトーク履歴を追加するには"),
         h("ol", { class: "steps" },
-          h("li", null, "LINEで、練習に使いたい友だちとのトーク画面を開きます。"),
+          h("li", null, "LINEで、練習に使いたい友だちとの1対1のトーク画面を開きます。"),
           h("li", null, `${LINE_EXPORT_MENU}を選びます。`),
           h("li", null, shareTargetSupported()
             ? "送信先の一覧から「トーク英作」を選びます。"
             : "送信先の一覧から、この端末に保存する方法（「ファイルに保存」など）を選び、上の「トーク履歴を追加・読み込み直す」でそのファイルを選びます。")),
         h("a", { href: LINE_EXPORT_HELP, target: "_blank", rel: "noopener" }, "くわしい手順（LINE公式ヘルプ）"))),
     h("section", null, h("h2", null, "データの取り扱いについて"),
+      h("p", { class: "note", style: "margin:0 0 4px" }, legalLink("利用規約", TERMS_URL), "　", legalLink("プライバシーポリシー", PRIVACY_URL)),
       h("h3", { class: "data-h" }, "トーク履歴の保管"),
       note("トーク履歴はお使いの端末内のみに保存され、サーバーには送信・保管されません。"),
       h("h3", { class: "data-h" }, "学習・回答履歴の暗号化"),
@@ -1602,6 +1646,7 @@ async function boot() {
   const mem = LS.get(K.mem); if (mem) Object.assign(S.mem, mem);
   S.metaAt = LS.get(K.metaAt) || 0; S.wipedAt = LS.get(K.wipedAt) || 0;
   S.aiConsent = LS.get(K.aiConsent) || null;
+  S.terms = LS.get(K.terms) || null;
   render();
   await Store.init();
   let [pool, cards, log] = await Promise.all([Store.get("pool"), Store.get("cards"), Store.get("log")]);
@@ -1624,6 +1669,7 @@ async function boot() {
   S.ready = true; render();
   onSharedText(onShared);
   try { await Cloud.init(cloudHooks); } catch (e) { console.warn("cloud init failed"); }
+  pushTerms();
   render();
   setTimeout(() => { fitModel(false); S.plan = null; if (S.view === "home") render(); }, 300);
 }

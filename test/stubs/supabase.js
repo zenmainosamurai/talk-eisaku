@@ -51,6 +51,13 @@ export function createClient() {
         setTimeout(() => listeners.forEach(cb => cb("SIGNED_IN", session)));
         return { data: { session }, error: null };
       },
+      async updateUser({ data }) {
+        // テスト用：window.__updateUserFail = true で失敗をまねる
+        if (!session || window.__updateUserFail) return { data: {}, error: { message: "fail" } };
+        session = { ...session, user: { ...session.user, user_metadata: { ...(session.user.user_metadata || {}), ...data } } };
+        localStorage.setItem("fake.session", JSON.stringify(session));
+        return { data: { user: session.user }, error: null };
+      },
       async signOut() { session = null; localStorage.removeItem("fake.session"); listeners.forEach(cb => cb("SIGNED_OUT", null)); return { error: null }; }
     },
     from: t => new Query(t),

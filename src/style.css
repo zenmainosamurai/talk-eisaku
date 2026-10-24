@@ -117,10 +117,12 @@ a { color: var(--me-ink); }
 .mic.on { background: var(--ng); border-color: var(--ng); color: #fff; }
 .mic.on::after { content: ""; position: absolute; inset: -6px; border-radius: 50%; border: 2px solid var(--ng); animation: ring 1.4s infinite ease-out; }
 @keyframes ring { from { transform: scale(.9); opacity: .9; } to { transform: scale(1.25); opacity: 0; } }
-.btn-row { display: flex; gap: 10px; margin-top: 10px; }
+.btn-row { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 10px; }
 .btn { min-height: 52px; border-radius: 12px; border: 0; padding: 0 18px; font-weight: 700; font-size: 1rem; }
 .btn.primary { background: var(--me); color: var(--on-me); }
-.btn-row .btn.primary { flex: 1; }
+/* 文字が大きくて横に並びきらないときは、ボタンの中で文字を折り返さず、ボタンごと次の行に回す（普通の大きさでは1行に並ぶ） */
+.btn-row .btn { flex: 0 0 auto; max-width: 100%; }
+.btn-row .btn.primary { flex: 1 0 auto; }
 .composer > .btn-row:first-child { margin-top: 0; }
 .btn.primary:disabled { background: var(--line); color: var(--muted); cursor: default; }
 .btn.ghost { background: var(--surface); color: var(--ink); border: 1px solid var(--line); }
