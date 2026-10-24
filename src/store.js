@@ -45,7 +45,7 @@ export const Store = {
   }
 };
 
-// 読み上げの音声（OpenAI で作った mp3）。端末の中だけに保存し、同じ英文はもう作らずに使い回す
+// 読み上げの音声（Google で作った mp3）。端末の中だけに保存し、同じ英文はもう作らずに使い回す
 const AUDIO_DB = "talk-eisaku-audio", AUDIO_MAX = 3000; // 1件 30〜70KB ほど。3000件で最大 約85〜210MB
 const done = r => new Promise((res, rej) => { r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); });
 export const AudioCache = {
@@ -74,6 +74,14 @@ export const AudioCache = {
       if (over <= 0) return;
       const tx = db.transaction("audio", "readwrite"), cur = tx.objectStore("audio").index("at").openCursor();
       cur.onsuccess = () => { const c = cur.result; if (c && over-- > 0) { c.delete(); c.continue(); } };
+    } catch {}
+  },
+  // prefix で始まる音声だけを残す（声を変えたあと、前の声で作った音声を消す）
+  async keepOnly(prefix) {
+    try {
+      const s = (await this.open()).transaction("audio", "readwrite").objectStore("audio");
+      s.delete(IDBKeyRange.upperBound(prefix, true));
+      await done(s.delete(IDBKeyRange.lowerBound(prefix + "\uffff", true)));
     } catch {}
   },
   async clear() {

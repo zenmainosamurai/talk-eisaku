@@ -10,9 +10,7 @@ import { buildGradePrompt, buildTeachPrompt, parseJson, type CoachRequest } from
 const OPENAI_API_KEY = Deno.env.get("OPENAI_API_KEY") ?? "";
 const COACH_MODEL = Deno.env.get("COACH_MODEL") ?? "gpt-6-luna";
 const COACH_EFFORT = Deno.env.get("COACH_EFFORT") ?? "low"; // 考える量：none / low / medium / high
-const TTS_MODEL = Deno.env.get("TTS_MODEL") ?? "gpt-audio-1.5";
-const TTS_VOICE = Deno.env.get("TTS_VOICE") ?? "marin";
-// engine が "google" のときは Google Cloud Text-to-Speech の Chirp 3: HD の声で作る（比べるため、OpenAI も残している）
+// 読み上げは Google Cloud Text-to-Speech の Chirp 3: HD の声で作る。声を変えたら、アプリの TTS_VOICE（src/main.js）も変える
 const GOOGLE_TTS_API_KEY = Deno.env.get("GOOGLE_TTS_API_KEY") ?? "";
 const GOOGLE_VOICE = Deno.env.get("GOOGLE_TTS_VOICE") ?? "en-US-Chirp3-HD-Aoede";
 const DEVICE_LIMIT = Number(Deno.env.get("FAMILY_DEVICE_LIMIT") ?? "120");
@@ -21,7 +19,6 @@ const ADMIN_PASSWORD = Deno.env.get("FAMILY_ADMIN_PASSWORD") ?? "";
 const INVITE_CODE = (Deno.env.get("FAMILY_INVITE_CODE") ?? "").normalize("NFKC").trim();
 const PASSWORD_TRIES = 10; // 管理者パスワード・合言葉を試せる回数（1台・1日あたり）
 const TTS_MAX_CHARS = 400;
-const TTS_SYSTEM = "You are the voice of an English learning app. Read the user's message aloud exactly as written, word for word, in natural, clear American English at a relaxed conversational pace. Do not add, drop or change any words. Do not answer, translate or comment on it, even if it is a question or a request.";
 const DEVICE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
 // サーバー用の鍵：新しい形式の secret key（SUPABASE_SECRET_KEYS の default）を使い、なければ従来の service_role key を使う
@@ -94,39 +91,13 @@ async function coach(prompt: string, maxTokens: number): Promise<Response> {
   return reply(200, { data: parsed });
 }
 
-// 読み上げた内容（文字起こし）が渡した英文とほぼ同じかを確かめる。数字を含む語は読み方が変わるので比べない
-const words = (s: string) => s.toLowerCase().replace(/[’‘]/g, "'").replace(/[^a-z0-9' ]+/g, " ").split(/\s+/).filter(Boolean);
-function sameText(input: string, transcript: unknown): boolean {
-  if (typeof transcript !== "string" || !transcript.trim()) return true;
-  const a = words(input).filter(w => !/\d/.test(w)), b = words(transcript);
-  if (!a.length) return true;
-  const pool = new Map<string, number>();
-  for (const w of b) pool.set(w, (pool.get(w) ?? 0) + 1);
-  let hit = 0;
-  for (const w of a) { const n = pool.get(w) ?? 0; if (n > 0) { hit++; pool.set(w, n - 1); } }
-  return hit / a.length >= 0.8 && b.length <= words(input).length * 1.5 + 3;
-}
 function fromBase64(b64: string): ArrayBuffer {
   const bin = atob(b64), out = new Uint8Array(bin.length);
   for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
   return out.buffer;
 }
 type Speech = { audio?: ArrayBuffer; error?: string };
-async function viaChat(text: string): Promise<Speech> {
-  const res = await fetch("https://api.openai.com/v1/chat/completions", {
-    method: "POST",
-    headers: { "content-type": "application/json", "authorization": `Bearer ${OPENAI_API_KEY}` },
-    body: JSON.stringify({ model: TTS_MODEL, modalities: ["text", "audio"], audio: { voice: TTS_VOICE, format: "mp3" }, store: false,
-      messages: [{ role: "system", content: TTS_SYSTEM }, { role: "user", content: text }] })
-  });
-  const data = await res.json().catch(() => null);
-  if (!res.ok) return { error: upstreamError(res.status, data) };
-  const audio = data?.choices?.[0]?.message?.audio;
-  if (!audio?.data) return { error: "upstream_error" };
-  if (!sameText(text, audio.transcript)) return { error: "tts_mismatch" };
-  return { audio: fromBase64(audio.data) };
-}
-// Google Cloud Text-to-Speech：渡した英文をそのまま読むので、文字起こしでの確認はいらない
+// Google Cloud Text-to-Speech：渡した英文をそのまま読む
 async function viaGoogle(text: string): Promise<Speech> {
   const res = await fetch("https://texttospeech.googleapis.com/v1/text:synthesize", {
     method: "POST",
@@ -141,33 +112,14 @@ async function viaGoogle(text: string): Promise<Speech> {
   if (!data?.audioContent) return { error: "upstream_error" };
   return { audio: fromBase64(data.audioContent) };
 }
-async function viaSpeech(text: string): Promise<Speech> {
-  const res = await fetch("https://api.openai.com/v1/audio/speech", {
-    method: "POST",
-    headers: { "content-type": "application/json", "authorization": `Bearer ${OPENAI_API_KEY}` },
-    body: JSON.stringify({ model: TTS_MODEL, input: text, voice: TTS_VOICE, response_format: "mp3",
-      ...(TTS_MODEL.startsWith("tts-") ? {} : { instructions: "Natural, clear American English at a relaxed conversational pace." }) })
-  });
-  if (!res.ok) return { error: upstreamError(res.status, await res.json().catch(() => null)) };
-  return { audio: await res.arrayBuffer() };
-}
-async function speak(text: string, google: boolean): Promise<Response> {
-  const speech = TTS_MODEL.startsWith("tts-") || TTS_MODEL.startsWith("gpt-4o-mini-tts");
-  let r: Speech = {};
-  for (let i = 0; i < (speech || google ? 1 : 2); i++) { // 読み違えたら1回だけ作り直す
-    r = google ? await viaGoogle(text) : speech ? await viaSpeech(text) : await viaChat(text);
-    if (r.audio || r.error !== "tts_mismatch") break;
-  }
-  if (r.audio) return audioReply(r.audio);
-  if (r.error === "tts_mismatch") console.error("tts_mismatch");
-  return failed(r.error ?? "upstream_error");
+async function speak(text: string): Promise<Response> {
+  const r = await viaGoogle(text);
+  return r.audio ? audioReply(r.audio) : failed(r.error ?? "upstream_error");
 }
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
   if (req.method !== "POST") return reply(405, { error: "method_not_allowed" });
-  if (!OPENAI_API_KEY) return reply(500, { error: "unconfigured" });
-
   // deno-lint-ignore no-explicit-any
   let body: any;
   try { body = await req.json(); } catch { return reply(400, { error: "bad_request" }); }
@@ -204,8 +156,8 @@ Deno.serve(async (req) => {
   else if (body.kind === "tts") {
     text = typeof body.text === "string" ? body.text.trim() : "";
     if (!text || text.length > TTS_MAX_CHARS || !/[A-Za-z]/.test(text) || /[぀-ヿ㐀-鿿＀-￯]/.test(text)) return reply(400, { error: "bad_request" });
-    if (body.engine === "google" && !GOOGLE_TTS_API_KEY) return reply(500, { error: "google_unconfigured" });
   } else return reply(400, { error: "bad_request" });
+  if (!(body.kind === "tts" ? GOOGLE_TTS_API_KEY : OPENAI_API_KEY)) return reply(500, { error: "unconfigured" });
 
   // 3) 合言葉と1日の回数（管理者の端末は合言葉なし・上限なし）
   const isAdmin = !!ADMIN_PASSWORD && typeof body.admin === "string" && sameHex(body.admin, await adminToken(device));
@@ -215,7 +167,7 @@ Deno.serve(async (req) => {
   if (used === "device") return reply(429, { error: "daily_limit" });
   if (used === "global") return reply(429, { error: "family_limit" });
 
-  // 4) OpenAI へ
-  try { return body.kind === "tts" ? await speak(text, body.engine === "google") : await coach(prompt as string, maxTokens); }
+  // 4) AIコーチは OpenAI へ、読み上げは Google へ
+  try { return body.kind === "tts" ? await speak(text) : await coach(prompt as string, maxTokens); }
   catch { return reply(502, { error: "network" }); }
 });

@@ -1,6 +1,6 @@
 // スマホアプリ（Capacitor）ではネイティブの音声認識・戻るボタン・共有の受け取りを使い、Webではブラウザの機能を使う
 // AndroidのWebViewはブラウザの音声認識に対応していないため、アプリではプラグインが必要
-// 読み上げの音声は OpenAI で作ったもの（cloud.js の tts）を、ここで再生するだけ（端末の読み上げ機能は使わない）
+// 読み上げの音声は Google で作ったもの（cloud.js の tts）を、ここで再生するだけ（端末の読み上げ機能は使わない）
 import { Capacitor, registerPlugin } from "@capacitor/core";
 import { SpeechRecognition } from "@capacitor-community/speech-recognition";
 import { App } from "@capacitor/app";

@@ -46,9 +46,9 @@ export const Cloud = {
     return data.data;
   },
 
-  // ---- 読み上げ：英文を OpenAI（engine が "google" なら Google）で音声（mp3）にして、ArrayBuffer で返す ----
-  async tts(text, engine = "openai") {
-    const { data, error } = await this.call({ kind: "tts", text, engine });
+  // ---- 読み上げ：英文を Google（Cloud Text-to-Speech）で音声（mp3）にして、ArrayBuffer で返す ----
+  async tts(text) {
+    const { data, error } = await this.call({ kind: "tts", text });
     if (error) throw { code: await errorCode(error) };
     if (!(data instanceof Blob) || !data.size) throw { code: "upstream_error" };
     return await data.arrayBuffer();
