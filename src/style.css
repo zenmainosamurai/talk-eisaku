@@ -43,7 +43,7 @@
 }
 *, *::before, *::after { box-sizing: inherit; }
 html { height: 100%; scroll-padding-top: env(safe-area-inset-top, 0px); -webkit-text-size-adjust: 100%; }
-body { height: 100%; margin: 0; background: var(--bg); color: var(--ink); font-family: var(--sans); font-size: 16px; line-height: 1.7; -webkit-tap-highlight-color: transparent; }
+body { height: 100%; margin: 0; background: var(--bg); color: var(--ink); font-family: var(--sans); font-size: 16px; line-height: 1.7; -webkit-tap-highlight-color: transparent; overflow-wrap: break-word; } /* 長いメールアドレスなども画面の幅で折り返す */
 #app { max-width: 560px; min-height: 100%; margin: 0 auto; display: flex; flex-direction: column; }
 .view { flex: 1; display: flex; flex-direction: column; padding: 0 16px; }
 button, input, textarea, select { font: inherit; color: inherit; }
