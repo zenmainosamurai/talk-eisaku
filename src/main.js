@@ -803,7 +803,7 @@ function viewSetup() {
         h("p", null, "あなたが実際にLINEで送ったメッセージが、英作文の問題になります。")),
       h("section", { style: "border-top:0" },
         h("ol", { class: "steps" },
-          h("li", null, `LINEで、練習に使いたい友だちとの1対1のトーク画面を開き、${LINE_EXPORT_MENU}を選びます。`),
+          h("li", null, `LINEで、練習に使いたい友だちとのトーク画面を開き、${LINE_EXPORT_MENU}を選びます。`),
           h("li", null, shareTargetSupported()
             ? "送信先の一覧から「トーク英作」を選ぶと、そのまま読み込めます。一覧にないときは、端末に保存（「ファイルに保存」など。機種によって名前が違います）してから、下のボタンでそのファイルを選びます。"
             : "送信先の一覧から、この端末に保存する方法（「ファイルに保存」など。機種によって名前が違います）を選び、下のボタンでそのファイルを選びます。",
@@ -814,7 +814,7 @@ function viewSetup() {
           h("a", { href: LINE_EXPORT_HELP, target: "_blank", rel: "noopener" }, "くわしい手順（LINE公式ヘルプ）"))));
   }
   const speakers = Object.entries(st.parsed.speakers).sort((a, b) => b[1] - a[1]);
-  const items = buildItems(st.parsed.msgs, st.me, "preview");
+  const items = st.me ? buildItems(st.parsed.msgs, st.me, "preview") : [];
   const already = S.pool ? items.filter(it => S.poolIndex.has(it.id)).length : 0;
   const examples = items.filter(it => len(it.ja) >= 8 && len(it.ja) <= 40).slice(0, 400).sort(() => Math.random() - .5).slice(0, 3);
   return h("div", { class: "view" },
@@ -824,14 +824,16 @@ function viewSetup() {
       h("p", null, `${st.parsed.msgs.length.toLocaleString()}件のメッセージを読み込みました。`)),
     h("section", null,
       h("label", { class: "field", for: "me" }, "あなたの名前"),
+      st.me ? null : h("p", { class: "note", style: "margin:0 0 8px" }, "話した人が3人以上います。この中から、あなたの名前を選んでください。"),
       h("select", { id: "me", onchange: e => { st.me = e.target.value; render(); } },
+        st.me ? null : h("option", { value: "", selected: true, disabled: true }, "選んでください"),
         speakers.map(([n, c]) => h("option", { value: n, selected: n === st.me }, `${n}（${c.toLocaleString()}件）`))),
-      h("p", { class: "note", style: "margin-top:10px" }, `この名前の発言から、${items.length.toLocaleString()}問を作れます。スタンプ・写真・URLだけの発言は除いています。問題にする意味があるかは、出題するときにAIがあなたの英語レベルに合わせて判定します。`
-        + (already ? `うち${already.toLocaleString()}問は読み込み済みです（前後の文脈を追加します）。` : ""))),
+      st.me ? h("p", { class: "note", style: "margin-top:10px" }, `この名前の発言から、${items.length.toLocaleString()}問を作れます。スタンプ・写真・URLだけの発言は除いています。問題にする意味があるかは、出題するときにAIがあなたの英語レベルに合わせて判定します。`
+        + (already ? `うち${already.toLocaleString()}問は読み込み済みです（前後の文脈を追加します）。` : "")) : null),
     examples.length ? h("section", null, h("h2", null, "問題の例"),
       examples.map(it => h("div", { class: "row me" }, h("div", { class: "bubble mine" }, it.ja)))) : null,
     h("div", { style: "padding:8px 0 28px" },
-      h("button", { class: "btn primary block", type: "button", disabled: !items.length, onclick: () => {
+      h("button", { class: "btn primary block", type: "button", disabled: !st.me || !items.length, onclick: () => {
         const src = buildSource(st.parsed, st.me);
         const added = addSource(src, buildItems(st.parsed.msgs, st.me, src.key));
         S.setup = null; S.plan = null;
@@ -846,11 +848,10 @@ function loadTalkText(text, name) {
   const parsed = parseLineExport(text);
   const names = Object.keys(parsed.speakers);
   if (!parsed.msgs.length || !names.length) { toast("LINEのトーク履歴として読み取れませんでした。「トーク履歴を送信」で作ったファイルを選んでください。", 6500); return; }
-  // グループのトークには対応しない（自分と相手の2人のトークだけ）。3人以上が話していたら読み込まない
-  if (names.length > 2) { toast("グループのトーク履歴には対応していません。1対1のトーク履歴を選んでください。", 6500); return; }
   const guess = Object.entries(parsed.speakers).filter(([n]) => n !== parsed.partner).sort((a, b) => b[1] - a[1])[0];
   stopListening(); closeConfirm();
-  S.setup = { parsed, me: guess ? guess[0] : names[0], name: name || "トーク履歴" };
+  // 話した人が3人以上（グループや、相手が途中で名前を変えた1対1）だと、いちばん多く話した人が自分とは限らないので、自分で選んでもらう
+  S.setup = { parsed, me: names.length > 2 ? "" : guess ? guess[0] : names[0], name: name || "トーク履歴" };
   S.view = "setup"; render(); window.scrollTo(0, 0);
 }
 async function onFile(file) {
@@ -1540,7 +1541,7 @@ function viewSettings() {
       h("div", { class: "howto" },
         h("h3", null, "LINEからトーク履歴を追加するには"),
         h("ol", { class: "steps" },
-          h("li", null, "LINEで、練習に使いたい友だちとの1対1のトーク画面を開きます。"),
+          h("li", null, "LINEで、練習に使いたい友だちとのトーク画面を開きます。"),
           h("li", null, `${LINE_EXPORT_MENU}を選びます。`),
           h("li", null, shareTargetSupported()
             ? "送信先の一覧から「トーク英作」を選びます。"
