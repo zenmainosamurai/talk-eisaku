@@ -1,4 +1,5 @@
-// 読み上げ：アプリから英文を受け取り、ログイン・サブスク・1日の上限を確かめてから OpenAI で音声にして返す
+// 読み上げ：アプリから英文を受け取り、ログイン・サブスク・1日の上限を確かめてから OpenAI（または Google）で音声にして返す
+// engine が "google" のときは Google Cloud Text-to-Speech の Chirp 3: HD の声で作る（比べるため、OpenAI も残している）
 // 重要：英文はログに出さず、どこにも保存しない（OpenAI 側にも store=false で保存させない）。エラーはコードだけを記録する
 // 作った音声はアプリが端末の中に保存して使い回す（サーバーには残さない）
 import { createClient } from "npm:@supabase/supabase-js@2";
@@ -7,6 +8,8 @@ const OPENAI_API_KEY = Deno.env.get("OPENAI_API_KEY") ?? "";
 // gpt-audio-1.5 は Chat Completions で音声を作る。tts-1 / gpt-4o-mini-tts を指定したときは読み上げ専用の API を使う（2027-01-06 に提供終了）
 const MODEL = Deno.env.get("TTS_MODEL") ?? "gpt-audio-1.5";
 const VOICE = Deno.env.get("TTS_VOICE") ?? "marin";
+const GOOGLE_TTS_API_KEY = Deno.env.get("GOOGLE_TTS_API_KEY") ?? "";
+const GOOGLE_VOICE = Deno.env.get("GOOGLE_TTS_VOICE") ?? "en-US-Chirp3-HD-Aoede";
 const DAILY_LIMIT = Number(Deno.env.get("DAILY_LIMIT") ?? "300");
 const REQUIRE_SUBSCRIPTION = (Deno.env.get("REQUIRE_SUBSCRIPTION") ?? "false") === "true";
 const MAX_CHARS = 400;
@@ -71,6 +74,21 @@ async function viaChat(text: string): Promise<Result> {
   if (!sameText(text, audio.transcript)) return { error: "tts_mismatch" };
   return { audio: fromBase64(audio.data) };
 }
+// Google Cloud Text-to-Speech：渡した英文をそのまま読むので、文字起こしでの確認はいらない
+async function viaGoogle(text: string): Promise<Result> {
+  const res = await fetch("https://texttospeech.googleapis.com/v1/text:synthesize", {
+    method: "POST",
+    headers: { "content-type": "application/json", "x-goog-api-key": GOOGLE_TTS_API_KEY },
+    body: JSON.stringify({ input: { text }, voice: { languageCode: GOOGLE_VOICE.split("-").slice(0, 2).join("-"), name: GOOGLE_VOICE }, audioConfig: { audioEncoding: "MP3" } })
+  });
+  const data = await res.json().catch(() => null);
+  if (!res.ok) {
+    console.error("google_error", res.status, data?.error?.status ?? "");
+    return { error: res.status === 429 || res.status >= 500 ? "overloaded" : "upstream_error" };
+  }
+  if (!data?.audioContent) return { error: "upstream_error" };
+  return { audio: fromBase64(data.audioContent) };
+}
 async function viaSpeech(text: string): Promise<Result> {
   const res = await fetch("https://api.openai.com/v1/audio/speech", {
     method: "POST",
@@ -100,10 +118,13 @@ Deno.serve(async (req) => {
   }
 
   // 3) 英文の確認（英語の短い文だけを受け付ける）
-  let body: { text?: unknown };
+  let body: { text?: unknown; engine?: unknown };
   try { body = await req.json(); } catch { return reply(400, { error: "bad_request" }); }
   const text = typeof body?.text === "string" ? body.text.trim() : "";
   if (!text || text.length > MAX_CHARS || !/[A-Za-z]/.test(text) || /[぀-ヿ㐀-鿿＀-￯]/.test(text)) return reply(400, { error: "bad_request" });
+
+  const google = body?.engine === "google";
+  if (google && !GOOGLE_TTS_API_KEY) return reply(500, { error: "google_unconfigured" });
 
   // 4) 1日の上限（AIコーチと同じ回数に数える）
   const { data: allowed, error: usageError } = await admin.rpc("bump_usage", { p_user: user.id, p_limit: DAILY_LIMIT });
@@ -113,8 +134,8 @@ Deno.serve(async (req) => {
   // 5) OpenAI で音声にする。読み違えたら1回だけ作り直す
   const speech = MODEL.startsWith("tts-") || MODEL.startsWith("gpt-4o-mini-tts");
   let r: Result = {};
-  for (let i = 0; i < (speech ? 1 : 2); i++) {
-    try { r = speech ? await viaSpeech(text) : await viaChat(text); } catch { return reply(502, { error: "network" }); }
+  for (let i = 0; i < (speech || google ? 1 : 2); i++) {
+    try { r = google ? await viaGoogle(text) : speech ? await viaSpeech(text) : await viaChat(text); } catch { return reply(502, { error: "network" }); }
     if (r.audio || r.error !== "tts_mismatch") break;
   }
   if (r.audio) return audioReply(r.audio);

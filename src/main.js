@@ -87,7 +87,7 @@ const canStudy = () => Cloud.configured();
 
 
 /* ============ 状態 ============ */
-const DEFAULT_SETTINGS = { newPerDay: 10, rate: 0.95, autoSpeak: true, sendContext: true, level: "intermediate" };
+const DEFAULT_SETTINGS = { newPerDay: 10, rate: 0.95, autoSpeak: true, sendContext: true, level: "intermediate", ttsEngine: "openai" };
 const S = {
   view: "home",
   pool: null,            // { v:2, sources:[{key, partner, me, meIdx, names, msgs, count, at}], items:[{id, d, ja, src, mi}] }
@@ -404,19 +404,21 @@ function toggleListening(ta, btn, onChange) {
     if (rec === waiting) rec = ctrl;
   });
 }
-// 読み上げ：OpenAI で作った音声を端末に保存し、同じ英文は保存したものを使う
+// 読み上げ：OpenAI（設定で選べば Google）で作った音声を端末に保存し、同じ英文は保存したものを使う
 // 作るときはAIへの送信の同意が必要（sample：設定の「試しに聞く」の決まった英文は、同意の前でも作れる）
-const TTS_VOICE = "gpt-audio-1.5/marin"; // サーバー（supabase/functions/tts）の声を変えたら、ここも変えて作り直す
+// 声ごとに分けて保存する。サーバー（supabase/functions/family）の声を変えたら、ここも変えて作り直す
+const TTS_VOICES = { openai: "gpt-audio-1.5/marin", google: "google/en-US-Chirp3-HD-Aoede" };
+const ttsEngine = () => (S.settings.ttsEngine === "google" ? "google" : "openai");
 const TTS = {
   seq: 0,
   stop() { this.seq++; Speech.stop(); },
   async speak(text, auto = false, sample = false) {
     if (!text) return;
-    const my = ++this.seq, key = TTS_VOICE + "|" + text;
+    const engine = ttsEngine(), my = ++this.seq, key = TTS_VOICES[engine] + "|" + text;
     let buf = await AudioCache.get(key);
     if (!buf) {
       if (!sample && !hasConsent()) { if (!auto) toast("読み上げるには、AIへの送信に同意してください。"); return; }
-      try { buf = await Cloud.tts(text); }
+      try { buf = await Cloud.tts(text, engine); }
       catch (e) { if (!auto && my === this.seq) toast(ttsErrorCopy(e && e.code), 5000); return; }
       AudioCache.put(key, buf);
     }
@@ -427,6 +429,7 @@ const TTS = {
 };
 function ttsErrorCopy(code) {
   if (code === "unconfigured") return "サーバーの設定がまだのため、読み上げが使えません。";
+  if (code === "google_unconfigured") return "Google の読み上げは、サーバーの設定がまだのため使えません。設定の「読み上げの声」を OpenAI に戻してください。";
   if (code === "need_invite") return "読み上げるには、合言葉の入力が必要です。「はじめる」から入力できます。";
   if (["daily_limit", "family_limit", "offline", "network", "overloaded"].includes(code)) return errorCopy(code);
   return "読み上げできませんでした。もう一度試してください。";
@@ -1253,7 +1256,7 @@ function viewConsent() {
           : "前後のやり取り：今の設定では送りません（設定でオンにすると、前3件・後ろ2件を相手の発言も含めて送ります。名前は送りません）")),
       h("p", { class: "note", style: "margin:12px 0 0" }, "運営者のサーバーには、これらを保存しません。OpenAI社での取り扱いは、同社のポリシー（",
         h("a", { href: "https://openai.com/policies/", target: "_blank", rel: "noopener" }, "openai.com/policies"), "）に従います。"),
-      h("p", { class: "note", style: "margin:8px 0 0" }, "読み上げの声は、AIで作った合成音声です。作った音声はこの端末に保存し、同じ英文を読み上げるときに使います。"),
+      h("p", { class: "note", style: "margin:8px 0 0" }, "読み上げの声は、AIで作った合成音声です。作った音声はこの端末に保存し、同じ英文を読み上げるときに使います。設定で読み上げの声に Google を選ぶと、読み上げる英文は Google社に送られます。"),
       h("p", { class: "banner" }, AI_NOTE + "お手本や判定は参考としてお使いください。")),
     h("div", { style: "padding:8px 0 28px" },
       hasConsent()
@@ -1326,6 +1329,10 @@ function viewSettings() {
         onclick: () => { st.level = k; persistSettings(); skippedNow.clear(); S.plan = null; render(); } }, v.name))),
       h("p", { class: "note", style: "margin:8px 0 0" }, "トーク履歴の中からあなたのレベルに合ったものを出題します。")),
     h("section", null, h("h2", null, "1日の作問数"), h("div", { class: "seg" }, [5, 10, 20, 30].map(segBtn))),
+    h("section", null, h("h2", null, "読み上げの声"),
+      h("div", { class: "seg" }, [["openai", "OpenAI"], ["google", "Google"]].map(([k, label]) => h("button", { class: "plain", type: "button", "aria-pressed": String(ttsEngine() === k),
+        onclick: () => { st.ttsEngine = k; persistSettings(); render(); } }, label))),
+      h("p", { class: "note", style: "margin:8px 0 0" }, "比べるときは、切り替えて「試しに聞く」を押してください。Google を選ぶと、読み上げる英文は Google社に送られます。")),
     h("section", null,
       h("div", { class: "row-set" }, h("h2", { style: "margin:0" }, "読み上げの速さ"), rateLbl),
       h("input", { type: "range", min: "0.6", max: "1.2", step: "0.05", value: String(st.rate), "aria-label": "読み上げの速さ",
@@ -1356,6 +1363,7 @@ function viewSettings() {
       // 前後の文脈は、設定でオフにしているときは送らないので、文面からも外す
       note(`採点やお手本の作成にあたり、ユーザーの発言や回答、過去の提示例、設定レベル${st.sendContext ? "、前後の文脈" : ""}が、読み上げの音声の作成にあたり、お手本などの英文が、運営サーバーを経由してOpenAI社のAPIへ一時送信されます。このデータが運営サーバーに残ることはありません。`),
       note("読み上げの音声はAIによる合成音声です。作成した音声はお使いの端末内に保存し、繰り返し使います。"),
+      note("設定で読み上げの声に Google を選んだときは、読み上げる英文は運営サーバーを経由して Google社の API（Cloud Text-to-Speech）へ一時送信されます。"),
       note("使いすぎを防ぐため、端末ごとに作ったランダムなIDと1日の利用回数をサーバーに記録します。"),
       h("h3", { class: "data-h" }, "AI出力に関する注意事項"),
       note("AIによる模範解答や採点結果は誤りを含む場合があります。あくまで参考情報としてご利用ください。"),
