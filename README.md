@@ -40,7 +40,7 @@
    npx supabase login
    npx supabase link --project-ref <project-ref>
    npx supabase db push
-   npx supabase secrets set OPENAI_API_KEY=sk-... DAILY_LIMIT=300 REQUIRE_SUBSCRIPTION=false
+   npx supabase secrets set OPENAI_API_KEY=sk-... GOOGLE_TTS_API_KEY=... DAILY_LIMIT=300 REQUIRE_SUBSCRIPTION=false
    npx supabase functions deploy coach
    npx supabase functions deploy tts
    npx supabase functions deploy delete-account
