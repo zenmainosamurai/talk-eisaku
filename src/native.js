@@ -37,6 +37,7 @@ export function onBackButton(handler) {
 
 // ---- 音声入力 ----
 // start() に { onText, onEnd, onError } を渡す。戻り値の stop() で止める
+// onText には話し始めてからの英文全体を渡す。onEnd・onError はどちらか1回だけ呼ぶ
 export const Voice = {
   supported() {
     if (isNative()) return true;
@@ -47,22 +48,88 @@ export const Voice = {
     return startWeb({ onText, onEnd, onError });
   }
 };
+// Android の音声認識（プラグイン @capacitor-community/speech-recognition 7）の動き：
+//  - start() は聞き始めるとすぐに終わる。途中の結果も、最後の結果も "partialResults" で届く
+//  - 少し黙ると1回分が終わり、"listeningState: stopped" のあとに最後の結果が届く（先に聞くのをやめると最後の結果を取りこぼす）
+//  - 何も話さなかったときや聞き取れなかったときは、何も知らせずに止まる（isListening() が false になる）
+//  - stop() は返事をしない（待つと、いつまでも「認識中」のままになる）
+// そこで、止めるボタンを押すまで1回分ずつ聞き直して、英文をつなげる（聞き直すときに端末の効果音が鳴ることがある）
+// 何も話さないまま1回分が終わったら、話し終えたとみなして止める
+const FINAL_WAIT = 1200, POLL_MS = 500, MAX_MS = 90000;
+let nativeSession = null;
 async function startNative({ onText, onEnd, onError }) {
-  const subs = [];
-  let ended = false;
-  const finish = () => { if (ended) return; ended = true; subs.forEach(s => { try { s.remove(); } catch {} }); onEnd(); };
+  if (nativeSession) nativeSession.dispose(); // 前の回が残っていたら、知らせずに片付ける
   try {
     const { available } = await SpeechRecognition.available();
     if (!available) { onError("unavailable"); return null; }
     const perm = await SpeechRecognition.requestPermissions();
     if (!Object.values(perm || {}).every(v => v === "granted")) { onError("not-allowed"); return null; }
-    subs.push(await SpeechRecognition.addListener("partialResults", d => { if (d && d.matches && d.matches[0]) onText(d.matches[0]); }));
-    subs.push(await SpeechRecognition.addListener("listeningState", d => { if (d && d.status === "stopped") finish(); }));
-    await SpeechRecognition.start({ language: "en-US", maxResults: 1, partialResults: true, popup: false });
-    return { stop: async () => { try { await SpeechRecognition.stop(); } catch {} finish(); } };
-  } catch {
-    finish(); onError("failed"); return null;
+  } catch { onError("failed"); return null; }
+
+  // done：確定した英文、seg：今の1回分、heard：今の1回分で何か聞き取れたか、any：始めてから何か聞き取れたか
+  let done = "", seg = "", heard = false, any = false;
+  let phase = "starting"; // starting → listening → waitFinal → （次の回へ）… → over
+  let userStopped = false, notified = false, finalTimer = null, poll = null, subs = [];
+  const t0 = Date.now();
+  const text = () => [done, seg].filter(Boolean).join(" ");
+  const self = {
+    dispose() { if (phase === "over") return; phase = "over"; clearTimeout(finalTimer); clearInterval(poll); subs.forEach(x => { try { x.remove(); } catch {} }); subs = []; if (nativeSession === self) nativeSession = null; }
+  };
+  nativeSession = self;
+  const end = err => {
+    if (phase === "over") return;
+    const mine = nativeSession === self;
+    self.dispose();
+    if (mine) SpeechRecognition.stop().catch(() => {}); // 返事は待たない
+    if (!notified) { notified = true; err ? onError(err) : onEnd(); }
+  };
+  const waitFinal = () => { phase = "waitFinal"; clearTimeout(finalTimer); finalTimer = setTimeout(segmentDone, FINAL_WAIT); };
+  // 1回分が終わった（最後の結果が届いた、または待ちきれなかった）
+  function segmentDone() {
+    if (phase === "over") return;
+    clearTimeout(finalTimer);
+    if (seg) { done = text(); seg = ""; }
+    if (userStopped) return end();
+    if (!heard || Date.now() - t0 > MAX_MS) return end(any ? null : "no-speech");
+    listen();
   }
+  async function listen() {
+    seg = ""; heard = false; phase = "starting";
+    try { await SpeechRecognition.start({ language: "en-US", maxResults: 1, partialResults: true, popup: false }); }
+    catch { return end(any ? null : "failed"); }
+    if (phase === "starting") phase = "listening";
+  }
+  try {
+    subs.push(await SpeechRecognition.addListener("partialResults", d => {
+      const m = d && d.matches && d.matches[0];
+      if (!m || phase === "over") return;
+      seg = m; heard = any = true; onText(text());
+      if (phase === "waitFinal") segmentDone(); // 最後の結果が届いた
+    }));
+    subs.push(await SpeechRecognition.addListener("listeningState", d => {
+      if (d && d.status === "stopped" && (phase === "listening" || phase === "starting")) waitFinal();
+    }));
+  } catch { end("failed"); return null; }
+  // 知らせなしに止まったとき（何も話さなかった・聞き取れなかった）を見つける
+  poll = setInterval(async () => {
+    if (phase !== "listening") return;
+    let listening = true;
+    try { ({ listening } = await SpeechRecognition.isListening()); } catch {}
+    if (!listening && phase === "listening") { if (heard) waitFinal(); else segmentDone(); }
+  }, POLL_MS);
+  listen();
+  return {
+    // 止めるボタン：画面はすぐに戻し、そこまでに話した分の最後の結果は少しだけ待って入れる
+    stop() {
+      if (phase === "over") return;
+      userStopped = true;
+      if (!notified) { notified = true; onEnd(); }
+      if (phase === "waitFinal") return;
+      if (!heard) return end();
+      SpeechRecognition.stop().catch(() => {});
+      waitFinal();
+    }
+  };
 }
 function startWeb({ onText, onEnd, onError }) {
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
