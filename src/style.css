@@ -113,7 +113,9 @@ a { color: var(--me-ink); }
 .ask-row textarea { flex: 1; min-height: 52px; max-height: 9em; resize: none; padding: 13px 14px; border-radius: 16px; border: 1px solid var(--line); background: var(--surface); font-family: var(--serif); font-size: 1.125rem; line-height: 1.4; }
 .ask-row textarea::placeholder { font-family: var(--sans); font-size: 1rem; color: var(--muted); }
 .mic { flex: none; width: 52px; height: 52px; border-radius: 50%; border: 2px solid var(--me-ink); background: var(--surface); color: var(--me-ink); display: grid; place-items: center; padding: 0; position: relative; }
-.mic svg { width: 24px; height: 24px; }
+.mic svg { width: 24px; height: 24px; pointer-events: none; }
+/* 押している間だけ聞き取るボタン：長押しで文字の選択やメニューが出ないようにする */
+.mic { touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
 .mic.on { background: var(--ng); border-color: var(--ng); color: #fff; }
 .mic.on::after { content: ""; position: absolute; inset: -6px; border-radius: 50%; border: 2px solid var(--ng); animation: ring 1.4s infinite ease-out; }
 @keyframes ring { from { transform: scale(.9); opacity: .9; } to { transform: scale(1.25); opacity: 0; } }

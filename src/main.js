@@ -401,28 +401,53 @@ function makePlan(extraNew = 0) {
 /* ============ 音声（入力・読み上げ） ============ */
 let rec = null;
 function stopListening() { if (rec) { const r = rec; rec = null; r.stop(); } }
-function toggleListening(ta, btn, onChange) {
-  if (rec) { stopListening(); return; }
-  if (!Voice.supported() || S.micBlocked) { toast("この端末では音声入力が使えません。キーボードのマイクで英語を話してください。", 6000); return; }
-  const before = ta.value.trim() ? ta.value.trim() + " " : "";
-  const setOn = on => { btn.classList.toggle("on", on); btn.innerHTML = on ? ICON.stop : ICON.mic; btn.setAttribute("aria-label", on ? "音声入力を止める" : "英語で話す"); };
-  const waiting = { cancelled: false, stop() { this.cancelled = true; setOn(false); } };
-  rec = waiting; setOn(true);
-  Voice.start({
-    onText: s => { ta.value = before + s; onChange(); },
-    onEnd: () => { if (rec === waiting || (rec && rec !== waiting)) rec = null; setOn(false); },
-    onError: code => {
-      rec = null; setOn(false);
-      if (code === "not-allowed") { S.micBlocked = true; toast("マイクの使用が許可されていません。端末の設定で許可するか、キーボードのマイクを使ってください。", 6500); }
-      else if (code === "unavailable") toast("この端末では音声入力が使えません。キーボードのマイクで英語を話してください。", 6000);
-      else if (code === "no-speech") toast("声が聞き取れませんでした。もう一度どうぞ。");
-      else if (code !== "aborted") toast("音声入力を開始できませんでした。");
-    }
-  }).then(ctrl => {
-    if (!ctrl) return;
-    if (waiting.cancelled) { ctrl.stop(); return; }
-    if (rec === waiting) rec = ctrl;
+// マイクのボタン：押している間だけ英語を聞き取り、離したら止める（黙っても、押している間は聞き続ける）
+const MIC_LABEL = "押している間、英語を聞き取る", MIC_ON_LABEL = "聞き取っています。離すと止まります";
+function micButton(ta, onChange, disabled) {
+  const btn = h("button", { class: "mic", type: "button", "aria-label": MIC_LABEL, html: ICON.mic, disabled });
+  const setOn = on => { btn.classList.toggle("on", on); btn.setAttribute("aria-label", on ? MIC_ON_LABEL : MIC_LABEL); };
+  const press = () => {
+    if (rec) return;
+    if (!Voice.supported() || S.micBlocked) { toast("この端末では音声入力が使えません。キーボードのマイクで英語を話してください。", 6000); return; }
+    const before = ta.value.trim() ? ta.value.trim() + " " : "", pressedAt = Date.now();
+    const waiting = { cancelled: false, stop() { this.cancelled = true; } }, mine = { ctrl: null };
+    const clear = () => { if (rec === waiting || (mine.ctrl && rec === mine.ctrl)) rec = null; };
+    rec = waiting; setOn(true);
+    Voice.start({
+      onText: s => { ta.value = before + s; onChange(); },
+      onEnd: info => {
+        clear(); setOn(false);
+        if (!(info && info.heard)) toast(Date.now() - pressedAt < 1500 ? "マイクのボタンを押したまま、英語で話してください。" : "声が聞き取れませんでした。もう一度どうぞ。");
+      },
+      onError: code => {
+        clear(); setOn(false);
+        if (code === "not-allowed") { S.micBlocked = true; toast("マイクの使用が許可されていません。端末の設定で許可するか、キーボードのマイクを使ってください。", 6500); }
+        else if (code === "unavailable") toast("この端末では音声入力が使えません。キーボードのマイクで英語を話してください。", 6000);
+        else if (code === "no-speech") toast("声が聞き取れませんでした。もう一度どうぞ。");
+        else if (code !== "aborted") toast("音声入力を開始できませんでした。");
+      }
+    }).then(ctrl => {
+      if (!ctrl) return;
+      mine.ctrl = ctrl;
+      if (waiting.cancelled) { ctrl.stop(); return; }
+      if (rec === waiting) rec = ctrl; else ctrl.stop();
+    });
+  };
+  // 離したとき：画面はすぐに戻し、最後の結果は Voice が入れ終えてから onEnd で知らせる
+  const release = () => { if (rec) { stopListening(); setOn(false); } };
+  btn.addEventListener("pointerdown", e => {
+    if (btn.disabled || (e.pointerType === "mouse" && e.button !== 0)) return;
+    e.preventDefault();
+    try { btn.setPointerCapture(e.pointerId); } catch {}
+    press();
   });
+  btn.addEventListener("pointerup", release);
+  btn.addEventListener("pointercancel", release);
+  btn.addEventListener("lostpointercapture", release);
+  btn.addEventListener("contextmenu", e => e.preventDefault()); // 長押しでメニューが出ないようにする
+  btn.addEventListener("keydown", e => { if ((e.key === " " || e.key === "Enter") && !e.repeat) { e.preventDefault(); press(); } });
+  btn.addEventListener("keyup", e => { if (e.key === " " || e.key === "Enter") { e.preventDefault(); release(); } });
+  return btn;
 }
 // 読み上げ：Google（Cloud Text-to-Speech の Chirp 3: HD）で作った音声を端末に保存し、同じ英文は保存したものを使う
 // 作るときはログインとAIへの送信の同意が必要（sample：設定の「試しに聞く」の決まった英文は、同意の前でも作れる）
@@ -1147,7 +1172,7 @@ function viewQuiz() {
 }
 function askComposer(ss) {
   const busy = ss.phase === "grading";
-  const ta = h("textarea", { rows: 1, lang: "en", placeholder: "英語で話すか、入力してください", "aria-label": "英語の回答", autocapitalize: "sentences", autocomplete: "off", spellcheck: "false", enterkeyhint: "send", disabled: busy, value: ss.answer });
+  const ta = h("textarea", { rows: 1, lang: "en", placeholder: "マイクを押したまま話すか、入力してください", "aria-label": "英語の回答", autocapitalize: "sentences", autocomplete: "off", spellcheck: "false", enterkeyhint: "send", disabled: busy, value: ss.answer });
   const send = h("button", { class: "btn primary", type: "button", disabled: busy || !ss.answer.trim(), onclick: () => check(false) }, busy ? "採点中…" : "答え合わせ");
   const grow = () => { ta.style.height = "auto"; ta.style.height = Math.min(ta.scrollHeight, 200) + "px"; };
   const onChange = () => { ss.answer = ta.value; send.disabled = busy || !ta.value.trim(); grow(); };
@@ -1155,7 +1180,7 @@ function askComposer(ss) {
   ta.addEventListener("keydown", e => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); if (ta.value.trim()) check(false); } });
   requestAnimationFrame(grow);
   const showMic = Voice.supported() && !S.micBlocked;
-  const mic = showMic ? h("button", { class: "mic", type: "button", "aria-label": "英語で話す", html: ICON.mic, disabled: busy, onclick: () => toggleListening(ta, mic, onChange) }) : null;
+  const mic = showMic ? micButton(ta, onChange, busy) : null;
   return h("div", { class: "composer" },
     h("div", { class: "ask-row" }, ta, mic),
     h("div", { class: "btn-row" },
