@@ -127,21 +127,27 @@ function cyrb53(str) {
 }
 function parseLineExport(raw) {
   const lines = raw.replace(/^\uFEFF/, "").split(/\r\n|\n|\r/);
-  const head = /^\[LINE\]\s*(.+?)とのトーク履歴/.exec(lines[0] || "");
-  const partner = head ? head[1].trim() : null;
+  // 1行目：日本語表示は「[LINE] 〇〇とのトーク履歴」、英語表示は「[LINE] Chat history with 〇〇」
+  const head = /^\[LINE\]\s*(?:(.+?)とのトーク履歴|Chat history (?:with|in) (.+?))\s*$/.exec(lines[0] || "");
+  const partner = head ? (head[1] || head[2]).trim() : null;
   const reDate = /^(\d{4})[\/.](\d{1,2})[\/.](\d{1,2})(\(.{1,3}\)|\s+\S{1,4})?\s*$/;
-  const reMsg = /^(\d{1,2}):(\d{2})\t(.*)$/;
+  // 英語表示の日付の行（例：Tue, 10/20/2026）
+  const reDateUS = /^(?:[A-Za-z]{3,9},?\s+)?(\d{1,2})\/(\d{1,2})\/(\d{4})(?:\s*\(?[A-Za-z]{3,9}\)?)?\s*$/;
+  // 時刻は「9:05」のほか、「午後1:20」「1:20 PM」の形もある
+  const reMsg = /^(午前|午後|AM|PM|am|pm)?\s?(\d{1,2}):(\d{2})(?:\s?(AM|PM|am|pm))?\t(.*)$/;
+  const hour24 = (h, a, b) => { const ap = (a || b || "").toLowerCase(); h = +h; if ((ap === "午後" || ap === "pm") && h < 12) h += 12; if ((ap === "午前" || ap === "am") && h === 12) h = 0; return h; };
   const msgs = [];
   let date = null, cur = null;
   for (let i = 0; i < lines.length; i++) {
     const ln = lines[i];
-    if (i < 3 && (/^\[LINE\]/.test(ln) || /^保存日時/.test(ln))) continue;
+    if (i < 3 && (/^\[LINE\]/.test(ln) || /^(保存日時|Saved on)/.test(ln))) continue;
     let m;
     if ((m = reDate.exec(ln))) { date = `${m[1]}-${pad2(m[2])}-${pad2(m[3])}`; cur = null; continue; }
+    if ((m = reDateUS.exec(ln))) { date = `${m[3]}-${pad2(m[1])}-${pad2(m[2])}`; cur = null; continue; }
     if ((m = reMsg.exec(ln))) {
-      const rest = m[3].split("\t");
+      const rest = m[5].split("\t");
       const named = rest.length >= 2;
-      cur = { d: date, t: `${pad2(m[1])}:${m[2]}`, name: named ? rest[0].trim() : "", text: named ? rest.slice(1).join("\t") : rest[0] };
+      cur = { d: date, t: `${pad2(hour24(m[2], m[1], m[4]))}:${m[3]}`, name: named ? rest[0].trim() : "", text: named ? rest.slice(1).join("\t") : rest[0] };
       msgs.push(cur);
       continue;
     }
