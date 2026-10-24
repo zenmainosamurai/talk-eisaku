@@ -76,7 +76,7 @@ function flushOne(key) {
 function flushAll() { for (const k of Object.keys(pending)) flushOne(k); }
 document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "hidden") { flushAll(); Cloud.flush(); }
-  else { checkNewDay(); if (S.ready) Cloud.sync(); }
+  else { checkNewDay(); S.micBlocked = false; if (S.ready) Cloud.sync(); } // 端末の設定でマイクを許可して戻ってきたら、もう一度試せるようにする
 });
 const saveCards = () => saveLater("cards");
 const saveLog = () => saveLater("log");
@@ -412,6 +412,7 @@ function toggleListening(ta, btn, onChange) {
     onError: code => {
       rec = null; setOn(false);
       if (code === "not-allowed") { S.micBlocked = true; toast("マイクの使用が許可されていません。端末の設定で許可するか、キーボードのマイクを使ってください。", 6500); }
+      else if (code === "unavailable") toast("この端末では音声入力が使えません。キーボードのマイクで英語を話してください。", 6000);
       else if (code === "no-speech") toast("声が聞き取れませんでした。もう一度どうぞ。");
       else if (code !== "aborted") toast("音声入力を開始できませんでした。");
     }
