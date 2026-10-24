@@ -524,7 +524,7 @@ function speakable(s) {
 /* ============ AIコーチ（Supabase Edge Function 経由） ============ */
 // AIに送る前に、同意画面で同意を得る。同意はこの端末にだけ保存する
 // 同意画面の文案を大きく変えたら CONSENT_VERSION を上げて、同意を取り直す
-const CONSENT_VERSION = 3; // 2：送り先を Anthropic社から OpenAI社に替え、読み上げを加えた。3：読み上げの送り先を Google社に替えた
+const CONSENT_VERSION = 4; // 2：送り先を Anthropic社から OpenAI社に替え、読み上げを加えた。3：読み上げの送り先を Google社に替えた。4：会話の相手の名前も送るようにした
 const AI_NOTE = "AIの回答は誤ることがあります。";
 const hasConsent = () => !!(S.aiConsent && S.aiConsent.v >= CONSENT_VERSION);
 // 利用規約・プライバシーポリシーへの同意。内容を大きく変えたら TERMS_VERSION を上げて、ログイン中の人にも同意し直してもらう
@@ -555,23 +555,40 @@ function requestStart(plan) {
   S.pendingPlan = plan; S.consentFrom = "start"; go("consent");
 }
 // 指示文（プロンプト）はサーバー側の supabase/functions/coach/prompts.ts にある
-// 端末から送るのは、問題文・回答・前後のやり取り（話し手は Me / Friend に置き換え、名前は送らない）だけ
-function contextPayload(item) {
-  if (!S.settings.sendContext) return null;
-  const cx = contextOf(item);
-  if (!cx.before.length && !cx.after.length) return null;
+// 端末から送るのは、問題文・回答・前後のやり取り（話し手は Me / Friend に置き換える）と、会話の相手の名前（LINE の表示名）だけ
+// 相手の名前は、英訳で相手の名前や愛称を you などにするために送る（2026年10月、利用者の判断）。自分の名前は送らない
+const MAX_PEOPLE = 8;
+const othersCache = new WeakMap();
+// このトークで自分以外に話した人の名前。多く話した順
+function othersOf(src) {
+  if (othersCache.has(src)) return othersCache.get(src);
+  const counts = new Map();
+  for (const [ni] of src.msgs || []) if (ni >= 0 && ni !== src.meIdx) counts.set(ni, (counts.get(ni) || 0) + 1);
+  const names = [...counts.entries()].sort((a, b) => b[1] - a[1]).map(([ni]) => src.names[ni]).filter(Boolean);
+  othersCache.set(src, names);
+  return names;
+}
+function aiPayload(item) {
   const labels = new Map();
-  const who = m => {
-    if (m.me) return "Me";
-    if (!labels.has(m.name)) labels.set(m.name, labels.size === 0 ? "Friend" : "Friend " + String.fromCharCode(66 + labels.size - 1));
-    return labels.get(m.name);
+  const label = name => {
+    if (!labels.has(name)) labels.set(name, labels.size === 0 ? "Friend" : "Friend " + String.fromCharCode(66 + labels.size - 1));
+    return labels.get(name);
   };
-  const line = m => ({ who: who(m), text: m.text });
-  return { before: cx.before.map(line), after: cx.after.map(line) };
+  let context = null;
+  if (S.settings.sendContext) {
+    const cx = contextOf(item);
+    const line = m => ({ who: m.me ? "Me" : label(m.name), text: m.text });
+    if (cx.before.length || cx.after.length) context = { before: cx.before.map(line), after: cx.after.map(line) };
+  }
+  const src = item && item.src && S.srcByKey.get(item.src);
+  const others = src ? othersOf(src) : item && item.cn ? [item.cn] : [];
+  for (const n of others) { if (labels.size >= MAX_PEOPLE) break; label(n); }
+  const people = [...labels.entries()].filter(([n]) => n && n !== "相手").slice(0, MAX_PEOPLE).map(([name, who]) => ({ who, name: Array.from(name).slice(0, 40).join("") }));
+  return { context, people };
 }
 async function grade(item, answer, ref) {
   if (!hasConsent()) throw { code: "no_consent" };
-  const r = await Cloud.coach({ kind: "grade", ja: item.ja, answer, ref: ref || "", level: levelKey(), context: contextPayload(item) });
+  const r = await Cloud.coach({ kind: "grade", ja: item.ja, answer, ref: ref || "", level: levelKey(), ...aiPayload(item) });
   if (!r || typeof r.model !== "string" || !r.model.trim()) throw { code: "invalid_json" };
   const str = v => (typeof v === "string" ? v.trim() : "");
   const norm = x => x.toLowerCase().replace(/[\u2019`]/g, "'").replace(/[^a-z0-9']+/g, " ").trim();
@@ -587,7 +604,7 @@ async function grade(item, answer, ref) {
 }
 async function teach(item) {
   if (!hasConsent()) throw { code: "no_consent" };
-  const r = await Cloud.coach({ kind: "teach", ja: item.ja, level: levelKey(), context: contextPayload(item) });
+  const r = await Cloud.coach({ kind: "teach", ja: item.ja, level: levelKey(), ...aiPayload(item) });
   const str = v => (typeof v === "string" ? v.trim() : "");
   if (r && (r.worth === false || r.worth === "false")) return { skip: true, reason: str(r.skip_reason) };
   if (!r || typeof r.model !== "string" || !r.model.trim()) throw { code: "invalid_json" };
@@ -1366,10 +1383,11 @@ function viewConsent() {
         li("問題にするあなたの発言（問題にしないと判断された発言も、判断のために送ります）"),
         li("あなたの英語の回答と、前に表示したお手本"),
         li("設定した英語のレベル"),
+        li("会話の相手の名前（LINEの表示名。英訳で、相手の名前や愛称を you などに言い換えるために使います）"),
         li("読み上げる英文（お手本など）"),
         li(S.settings.sendContext
-          ? "前後のやり取り（前3件・後ろ2件。相手の発言を含みます。名前は送りません。設定でオフにできます）"
-          : "前後のやり取り：今の設定では送りません（設定でオンにすると、前3件・後ろ2件を相手の発言も含めて送ります。名前は送りません）")),
+          ? "前後のやり取り（前3件・後ろ2件。相手の発言を含みます。設定でオフにできます）"
+          : "前後のやり取り：今の設定では送りません（設定でオンにすると、前3件・後ろ2件を相手の発言も含めて送ります）")),
       h("p", { class: "note", style: "margin:12px 0 0" }, "運営者のサーバーには、これらを保存しません。OpenAI社・Google社での取り扱いは、各社のポリシー（",
         h("a", { href: "https://openai.com/policies/", target: "_blank", rel: "noopener" }, "openai.com/policies"), "、",
         h("a", { href: "https://cloud.google.com/terms/cloud-privacy-notice", target: "_blank", rel: "noopener" }, "Google Cloud のプライバシー通知"), "）に従います。"),
@@ -1545,7 +1563,7 @@ function viewSettings() {
     h("section", { style: "border-top:0;padding-top:4px" }, h("h2", null, "アカウント"), account),
     h("section", null, h("h2", null, "翻訳と採点"),
       h("div", { class: "row-set" }, h("span", null, "前後のやり取りも踏まえて訳す"), sw(st.sendContext, "前後のやり取りも踏まえて訳す", () => { st.sendContext = !st.sendContext; persistSettings(); })),
-      h("p", { class: "note", style: "margin:8px 0 0" }, "オンにすると、対象の発言の前3件・後ろ2件（同じ日のやり取り）も、相手の発言を含めてAIに送ります。話し手の名前は送りません。")),
+      h("p", { class: "note", style: "margin:8px 0 0" }, "オンにすると、対象の発言の前3件・後ろ2件（同じ日のやり取り）も、相手の発言を含めてAIに送ります。")),
     h("section", null, h("h2", null, "あなたの英語レベル"),
       h("div", { class: "seg" }, Object.entries(LEVELS).map(([k, v]) => h("button", { class: "plain", type: "button", "aria-pressed": String(levelKey() === k),
         onclick: () => { st.level = k; persistSettings(); skippedNow.clear(); S.plan = null; render(); } }, v.name))),
@@ -1580,7 +1598,7 @@ function viewSettings() {
       note("学習・回答データは端末側で暗号化した上でサーバーに保存されます。運営者であっても内容は閲覧できません。なお、復元キーを紛失された場合、運営側からデータを復元することはできませんのでご注意ください。"),
       h("h3", { class: "data-h" }, "外部AI（OpenAI API・Google Cloud）との連携"),
       // 前後の文脈は、設定でオフにしているときは送らないので、文面からも外す
-      note(`採点やお手本の作成にあたり、ユーザーの発言や回答、過去の提示例、設定レベル${st.sendContext ? "、前後の文脈" : ""}が、運営サーバーを経由してOpenAI社のAPIへ一時送信されます。読み上げの音声の作成にあたり、お手本などの英文が、運営サーバーを経由してGoogle社のAPI（Cloud Text-to-Speech）へ一時送信されます。これらのデータが運営サーバーに残ることはありません。`),
+      note(`採点やお手本の作成にあたり、ユーザーの発言や回答、過去の提示例、設定レベル、会話の相手の名前${st.sendContext ? "、前後の文脈" : ""}が、運営サーバーを経由してOpenAI社のAPIへ一時送信されます。読み上げの音声の作成にあたり、お手本などの英文が、運営サーバーを経由してGoogle社のAPI（Cloud Text-to-Speech）へ一時送信されます。これらのデータが運営サーバーに残ることはありません。`),
       note("読み上げの音声はAIによる合成音声です。作成した音声はお使いの端末内に保存し、繰り返し使います。"),
       h("h3", { class: "data-h" }, "AI出力に関する注意事項"),
       note("AIによる模範解答や採点結果は誤りを含む場合があります。あくまで参考情報としてご利用ください。"),
