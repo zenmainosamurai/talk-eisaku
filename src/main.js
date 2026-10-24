@@ -97,7 +97,7 @@ const canStudy = () => Cloud.signedIn() && Cloud.status !== "checking";
 
 
 /* ============ 状態 ============ */
-const DEFAULT_SETTINGS = { newPerDay: 10, rate: 0.95, autoSpeak: true, sendContext: true, level: "intermediate", ttsEngine: "openai" };
+const DEFAULT_SETTINGS = { newPerDay: 10, rate: 0.95, autoSpeak: true, sendContext: true, level: "intermediate" };
 const S = {
   view: "home",
   pool: null,            // { v:2, sources:[{key, partner, me, meIdx, names, msgs, count, at}], items:[{id, d, ja, src, mi}] }
@@ -415,21 +415,22 @@ function toggleListening(ta, btn, onChange) {
     if (rec === waiting) rec = ctrl;
   });
 }
-// 読み上げ：OpenAI（設定で選べば Google）で作った音声を端末に保存し、同じ英文は保存したものを使う
+// 読み上げ：Google（Cloud Text-to-Speech の Chirp 3: HD）で作った音声を端末に保存し、同じ英文は保存したものを使う
 // 作るときはログインとAIへの送信の同意が必要（sample：設定の「試しに聞く」の決まった英文は、同意の前でも作れる）
 // 声ごとに分けて保存する。サーバー（supabase/functions/tts）の声を変えたら、ここも変えて作り直す
-const TTS_VOICES = { openai: "gpt-audio-1.5/marin", google: "google/en-US-Chirp3-HD-Aoede" };
-const ttsEngine = () => (S.settings.ttsEngine === "google" ? "google" : "openai");
+const TTS_VOICE = "google/en-US-Chirp3-HD-Aoede";
 const TTS = {
-  seq: 0,
+  seq: 0, cleaned: false,
   stop() { this.seq++; Speech.stop(); },
   async speak(text, auto = false, sample = false) {
     if (!text) return;
-    const engine = ttsEngine(), my = ++this.seq, key = TTS_VOICES[engine] + "|" + text;
+    // 前の声（OpenAI など）で作った音声が残っていれば、最初の1回だけまとめて消す
+    if (!this.cleaned) { this.cleaned = true; AudioCache.keepOnly(TTS_VOICE + "|"); }
+    const my = ++this.seq, key = TTS_VOICE + "|" + text;
     let buf = await AudioCache.get(key);
     if (!buf) {
       if (!sample && !hasConsent()) { if (!auto) toast("読み上げるには、AIへの送信に同意してください。"); return; }
-      try { buf = await Cloud.tts(text, engine); }
+      try { buf = await Cloud.tts(text); }
       catch (e) { if (!auto && my === this.seq) toast(ttsErrorCopy(e && e.code), 5000); return; }
       AudioCache.put(key, buf);
     }
@@ -440,7 +441,6 @@ const TTS = {
 };
 function ttsErrorCopy(code) {
   if (code === "unconfigured") return "サーバーの設定がまだのため、読み上げが使えません。";
-  if (code === "google_unconfigured") return "Google の読み上げは、サーバーの設定がまだのため使えません。設定の「読み上げの声」を OpenAI に戻してください。";
   if (code === "not_signed_in") return "読み上げるには、ログインしてください。";
   if (code === "no_subscription") return "読み上げは、サブスク会員向けの機能です。";
   if (["daily_limit", "offline", "network", "overloaded"].includes(code)) return errorCopy(code);
@@ -490,7 +490,7 @@ function speakable(s) {
 /* ============ AIコーチ（Supabase Edge Function 経由） ============ */
 // AIに送る前に、同意画面で同意を得る。同意はこの端末にだけ保存する
 // 同意画面の文案を大きく変えたら CONSENT_VERSION を上げて、同意を取り直す
-const CONSENT_VERSION = 2; // 2：送り先を Anthropic社から OpenAI社に替え、読み上げを加えた
+const CONSENT_VERSION = 3; // 2：送り先を Anthropic社から OpenAI社に替え、読み上げを加えた。3：読み上げの送り先を Google社に替えた
 const AI_NOTE = "AIの回答は誤ることがあります。";
 const hasConsent = () => !!(S.aiConsent && S.aiConsent.v >= CONSENT_VERSION);
 function setConsent(on) {
@@ -1274,7 +1274,7 @@ function viewConsent() {
     h("div", { class: "bar" }, navBtn("back", "戻る", back)),
     h("div", { class: "intro" },
       h("p", { class: "title", style: "font-size:1.375rem" }, "AIコーチを使う前に"),
-      h("p", null, "お手本づくり・採点・読み上げには、OpenAI社のAIを使います。AIコーチを使うと、次の内容が運営者のサーバーを経由してOpenAI社に送られます。")),
+      h("p", null, "お手本づくりと採点には OpenAI社のAIを、読み上げには Google社の音声合成を使います。AIコーチを使うと、次の内容が運営者のサーバーを経由して OpenAI社（読み上げる英文だけは Google社）に送られます。")),
     h("section", { style: "border-top:0" },
       h("ul", { class: "consent-list" },
         li("問題にするあなたの発言（問題にしないと判断された発言も、判断のために送ります）"),
@@ -1284,9 +1284,10 @@ function viewConsent() {
         li(S.settings.sendContext
           ? "前後のやり取り（前3件・後ろ2件。相手の発言を含みます。名前は送りません。設定でオフにできます）"
           : "前後のやり取り：今の設定では送りません（設定でオンにすると、前3件・後ろ2件を相手の発言も含めて送ります。名前は送りません）")),
-      h("p", { class: "note", style: "margin:12px 0 0" }, "運営者のサーバーには、これらを保存しません。OpenAI社での取り扱いは、同社のポリシー（",
-        h("a", { href: "https://openai.com/policies/", target: "_blank", rel: "noopener" }, "openai.com/policies"), "）に従います。"),
-      h("p", { class: "note", style: "margin:8px 0 0" }, "読み上げの声は、AIで作った合成音声です。作った音声はこの端末に保存し、同じ英文を読み上げるときに使います。設定で読み上げの声に Google を選ぶと、読み上げる英文は Google社に送られます。"),
+      h("p", { class: "note", style: "margin:12px 0 0" }, "運営者のサーバーには、これらを保存しません。OpenAI社・Google社での取り扱いは、各社のポリシー（",
+        h("a", { href: "https://openai.com/policies/", target: "_blank", rel: "noopener" }, "openai.com/policies"), "、",
+        h("a", { href: "https://cloud.google.com/terms/cloud-privacy-notice", target: "_blank", rel: "noopener" }, "Google Cloud のプライバシー通知"), "）に従います。"),
+      h("p", { class: "note", style: "margin:8px 0 0" }, "読み上げの声は、AIで作った合成音声です。作った音声はこの端末に保存し、同じ英文を読み上げるときに使います。"),
       h("p", { class: "banner" }, AI_NOTE + "お手本や判定は参考としてお使いください。")),
     h("div", { style: "padding:8px 0 28px" },
       hasConsent()
@@ -1464,10 +1465,6 @@ function viewSettings() {
         onclick: () => { st.level = k; persistSettings(); skippedNow.clear(); S.plan = null; render(); } }, v.name))),
       h("p", { class: "note", style: "margin:8px 0 0" }, "トーク履歴の中からあなたのレベルに合ったものを出題します。")),
     h("section", null, h("h2", null, "1日の作問数"), h("div", { class: "seg" }, [5, 10, 20, 30].map(segBtn))),
-    h("section", null, h("h2", null, "読み上げの声"),
-      h("div", { class: "seg" }, [["openai", "OpenAI"], ["google", "Google"]].map(([k, label]) => h("button", { class: "plain", type: "button", "aria-pressed": String(ttsEngine() === k),
-        onclick: () => { st.ttsEngine = k; persistSettings(); render(); } }, label))),
-      h("p", { class: "note", style: "margin:8px 0 0" }, "比べるときは、切り替えて「試しに聞く」を押してください。Google を選ぶと、読み上げる英文は Google社に送られます。")),
     h("section", null,
       h("div", { class: "row-set" }, h("h2", { style: "margin:0" }, "読み上げの速さ"), rateLbl),
       h("input", { type: "range", min: "0.6", max: "1.2", step: "0.05", value: String(st.rate), "aria-label": "読み上げの速さ",
@@ -1494,11 +1491,10 @@ function viewSettings() {
       note("トーク履歴はお使いの端末内のみに保存され、サーバーには送信・保管されません。"),
       h("h3", { class: "data-h" }, "学習・回答履歴の暗号化"),
       note("学習・回答データは端末側で暗号化した上でサーバーに保存されます。運営者であっても内容は閲覧できません。なお、復元キーを紛失された場合、運営側からデータを復元することはできませんのでご注意ください。"),
-      h("h3", { class: "data-h" }, "外部AI（OpenAI API）との連携"),
+      h("h3", { class: "data-h" }, "外部AI（OpenAI API・Google Cloud）との連携"),
       // 前後の文脈は、設定でオフにしているときは送らないので、文面からも外す
-      note(`採点やお手本の作成にあたり、ユーザーの発言や回答、過去の提示例、設定レベル${st.sendContext ? "、前後の文脈" : ""}が、読み上げの音声の作成にあたり、お手本などの英文が、運営サーバーを経由してOpenAI社のAPIへ一時送信されます。このデータが運営サーバーに残ることはありません。`),
+      note(`採点やお手本の作成にあたり、ユーザーの発言や回答、過去の提示例、設定レベル${st.sendContext ? "、前後の文脈" : ""}が、運営サーバーを経由してOpenAI社のAPIへ一時送信されます。読み上げの音声の作成にあたり、お手本などの英文が、運営サーバーを経由してGoogle社のAPI（Cloud Text-to-Speech）へ一時送信されます。これらのデータが運営サーバーに残ることはありません。`),
       note("読み上げの音声はAIによる合成音声です。作成した音声はお使いの端末内に保存し、繰り返し使います。"),
-      note("設定で読み上げの声に Google を選んだときは、読み上げる英文は運営サーバーを経由して Google社の API（Cloud Text-to-Speech）へ一時送信されます。"),
       h("h3", { class: "data-h" }, "AI出力に関する注意事項"),
       note("AIによる模範解答や採点結果は誤りを含む場合があります。あくまで参考情報としてご利用ください。"),
       hasConsent()
@@ -1532,7 +1528,7 @@ const cloudHooks = {
   dayKeys: () => [...new Set(S.log.map(e => dayKey(e.t)))],
   cardPayload,
   dayEvents: day => S.log.filter(e => dayKey(e.t) === day),
-  metaPayload: () => ({ at: S.metaAt, wipedAt: S.wipedAt, settings: { newPerDay: S.settings.newPerDay, rate: S.settings.rate, autoSpeak: S.settings.autoSpeak, sendContext: S.settings.sendContext, level: S.settings.level, ttsEngine: S.settings.ttsEngine } }),
+  metaPayload: () => ({ at: S.metaAt, wipedAt: S.wipedAt, settings: { newPerDay: S.settings.newPerDay, rate: S.settings.rate, autoSpeak: S.settings.autoSpeak, sendContext: S.settings.sendContext, level: S.settings.level } }),
   async resetLocalLearning() {
     S.cards = {}; S.log = []; S.plan = null;
     await Store.set("cards", S.cards); await Store.set("log", S.log);
