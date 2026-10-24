@@ -1239,7 +1239,7 @@ function viewLogin() {
     finally { LOGIN.busy = false; render(); }
   } }, LOGIN.sent ? "コードを送り直す" : "確認コードを送る");
   const verify = h("button", { class: "btn primary block", type: "button", disabled: LOGIN.busy, onclick: async () => {
-    const code = codeIn.value.replace(/\D/g, "");
+    const code = codeIn.value.normalize("NFKC").replace(/\D/g, ""); // 全角の数字で入れても通す
     if (code.length < 6) { toast("メールに届いたコードを入力してください。"); return; }
     LOGIN.busy = true; render();
     try { await Cloud.verifyCode(LOGIN.email, code); LOGIN.sent = false; S.view = "home"; S.plan = null; }
