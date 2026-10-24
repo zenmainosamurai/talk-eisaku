@@ -231,12 +231,12 @@ export const Cloud = {
     return data.data;
   },
 
-  // ---- 読み上げ：英文を OpenAI で音声（mp3）にして、ArrayBuffer で返す ----
-  async tts(text) {
+  // ---- 読み上げ：英文を OpenAI（engine が "google" なら Google）で音声（mp3）にして、ArrayBuffer で返す ----
+  async tts(text, engine = "openai") {
     if (!this.configured()) throw { code: "unconfigured" };
     if (!this.user) throw { code: "not_signed_in" };
     if (typeof navigator !== "undefined" && navigator.onLine === false) throw { code: "offline" };
-    const { data, error } = await this.sb.functions.invoke("tts", { body: { text } });
+    const { data, error } = await this.sb.functions.invoke("tts", { body: { text, engine } });
     if (error) throw { code: await errorCode(error) };
     if (!(data instanceof Blob) || !data.size) throw { code: "upstream_error" };
     return await data.arrayBuffer();

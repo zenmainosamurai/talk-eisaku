@@ -43,7 +43,7 @@
 - トーク履歴（相手の発言を含む）は端末にだけ保存し、サーバーには保存しない。
 - 学習記録と回答履歴は、端末で暗号化してからサーバーに保存する。鍵は利用者の復元キーから作り、運営者は持たない。サーバーに置くのは暗号文と、鍵付きハッシュで作ったID（`blindId`）だけ。
 - サーバーに送る学習記録には、`src`・`mi`・`ctx`・`cn`（トーク履歴の中の位置や相手の発言）を入れない。送る項目は `CARD_FIELDS` で決めている。
-- AIは OpenAI を使う（2026年10月に Anthropic の Claude から替えた）。お手本づくりと採点は `gpt-6-luna`（`COACH_MODEL`）、読み上げは `gpt-audio-1.5` の声 `marin`（`TTS_MODEL`・`TTS_VOICE`）。OpenAI には `store: false` で送り、保存させない。
+- AIは OpenAI を使う（2026年10月に Anthropic の Claude から替えた）。お手本づくりと採点は `gpt-6-luna`（`COACH_MODEL`）、読み上げは `gpt-audio-1.5` の声 `marin`（`TTS_MODEL`・`TTS_VOICE`）。読み上げは設定の「読み上げの声」で Google Cloud Text-to-Speech の Chirp 3: HD（`GOOGLE_TTS_VOICE`、既定 `en-US-Chirp3-HD-Aoede`）にも切り替えられる（2026年10月、OpenAI と聞き比べるために足した。既定は OpenAI）。Google を選んだときだけ、読み上げる英文を Google社に送る。OpenAI には `store: false` で送り、保存させない。
 - AIに送るのは、問題文、利用者の回答、前回のお手本、英語レベル、前後のやり取り（前3件・後ろ2件、同じ日のもの）、読み上げる英文だけ。話し手は `Me`・`Friend`・`Friend B` などに置き換え、名前は送らない。前後のやり取りは設定でオフにできる。
 - 本文中の名前や電話番号などを伏せる処理はしない（利用者が決めた仕様）。
 - Edge Function は会話の本文をログに出さず、保存もしない。`console.error` に出すのはエラーの種類だけ。
@@ -51,7 +51,7 @@
 - OpenAI の APIキー（`OPENAI_API_KEY`）は Supabase の Secrets にだけ置く。アプリには入れない。
 - AIへの送信は、同意画面（`viewConsent()`）で同意を得てから行う。同意画面は初めて「はじめる」を押したときに出し、同意前は先読みも含めて一切送らない（`teach()`・`grade()` でも確かめる）。同意しなければホームに戻る。
 - 同意はこの端末にだけ保存し（`tk.aiConsent.v1`）、サーバーには送らない。設定の「データの取り扱いについて」で取り消せる。同意画面の文案を大きく変えたら `CONSENT_VERSION` を上げて、同意を取り直す（送り先を OpenAI に替えたときに 2 にした）。
-- 読み上げの音声は、端末の IndexedDB（`talk-eisaku-audio`、3000件まで、古いものから消す。1件30〜70KBほどで、最大で約85〜210MB。利用者の判断）にだけ保存し、同じ英文はもう作らない。作るときはログインとAIへの送信の同意が必要（設定の「試しに聞く」の決まった英文だけは同意の前でも作れる）。端末の読み上げ機能は使わない（音質が悪いため。利用者の判断）。OpenAI の規約に沿い、読み上げの声がAIの合成音声であることを同意画面と「データの取り扱いについて」に書く。
+- 読み上げの音声は、声ごとに分けて（`TTS_VOICES`）端末の IndexedDB（`talk-eisaku-audio`、3000件まで、古いものから消す。1件30〜70KBほどで、最大で約85〜210MB。利用者の判断）にだけ保存し、同じ英文はもう作らない。作るときはログインとAIへの送信の同意が必要（設定の「試しに聞く」の決まった英文だけは同意の前でも作れる）。端末の読み上げ機能は使わない（音質が悪いため。利用者の判断）。OpenAI の規約に沿い、読み上げの声がAIの合成音声であることを同意画面と「データの取り扱いについて」に書く。
 - アカウントの削除は、設定の「アカウント」から確認画面に進み、「元に戻せないことを理解しました」にチェックしてから行う。サーバーのアカウントと記録をすべて消し（`delete-account`）、成功したらこの端末のデータ（トーク履歴・学習記録・設定・AIへの同意・読み上げの音声）もすべて消して最初の画面に戻る。失敗したときは何も消さない。サブスクは自動では解約されないことを画面で案内する。
 
 ### 出題と採点
@@ -103,7 +103,7 @@
 - ログインのメールは Resend の SMTP で送る。送信元は開発用の `onboarding@resend.dev` で、Resend に登録したメールアドレスにしか届かない。
 - メールの本文（「Confirm sign up」と「Magic link or OTP」）は、件名「トーク英作のログインコード」、本文に6桁のコード（`{{ .Token }}`）を載せたもの。Supabase 標準のメール送信のままでは本文を編集できない。
 - 2026年10月23日に、エミュレーターでトーク履歴の読み込み・ログイン・復元キー・同意画面・お手本の表示まで通ることを確かめた。同じ日に Android の実機でも、音声入力・読み上げを含めて正しく動くことを確かめた（iPhone はまだ）。OpenAI への切り替え後は、実機での確認がまだ。
-- Edge Function の Secrets：`OPENAI_API_KEY`（利用者が登録する）、`DAILY_LIMIT`、`REQUIRE_SUBSCRIPTION`。任意で `COACH_MODEL`（既定 `gpt-6-luna`）、`COACH_EFFORT`（既定 `low`）、`TTS_MODEL`（既定 `gpt-audio-1.5`）、`TTS_VOICE`（既定 `marin`）。読み上げも AIコーチと同じ1日の回数に数える。
+- Edge Function の Secrets：`OPENAI_API_KEY`・`GOOGLE_TTS_API_KEY`（Cloud Text-to-Speech API だけに使える API キー。どちらも利用者が登録する）、`DAILY_LIMIT`、`REQUIRE_SUBSCRIPTION`。任意で `COACH_MODEL`（既定 `gpt-6-luna`）、`COACH_EFFORT`（既定 `low`）、`TTS_MODEL`（既定 `gpt-audio-1.5`）、`TTS_VOICE`（既定 `marin`）。読み上げも AIコーチと同じ1日の回数に数える。
 - OpenAI の読み上げ用の API（`/v1/audio/speech` の `tts-1`・`gpt-4o-mini-tts`）は 2027年1月6日に終わるため使わず、Chat Completions の `gpt-audio-1.5` で英文を読ませている。読み違えを防ぐため、返ってきた文字起こしと英文を比べ、違えば1回だけ作り直す。
 
 ## まだできていないこと

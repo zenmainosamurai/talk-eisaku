@@ -62,6 +62,7 @@ export function createClient() {
         }
         if (name === "tts") {
           (window.__ttsCalls = window.__ttsCalls || []).push(body.text);
+          (window.__ttsEngines = window.__ttsEngines || []).push(body.engine);
           if (!session) return { data: null, error: { context: { json: async () => ({ error: "not_signed_in" }) } } };
           if (window.__ttsFail) return { data: null, error: { context: { json: async () => ({ error: window.__ttsFail }) } } };
           return { data: new Blob([silentWav()], { type: "application/octet-stream" }), error: null };
