@@ -38,13 +38,25 @@ export function createClient() {
     auth: {
       async getSession() { return { data: { session } }; },
       onAuthStateChange(cb) { listeners.push(cb); return { data: { subscription: { unsubscribe() {} } } }; },
-      async signInWithOtp({ email }) { window.__otpTo = email; return { error: null }; },
+      async signInWithOtp({ email }) {
+        window.__otpTo = email;
+        // テスト用：window.__otpFail = { status: 429 } で送信の失敗をまねる
+        if (window.__otpFail) return { error: { status: window.__otpFail.status, message: "fail" } };
+        return { error: null };
+      },
       async verifyOtp({ email, token }) {
         if (token !== "123456") return { data: {}, error: { message: "bad" } };
         session = { user: { id: "uid-" + email, email } };
         localStorage.setItem("fake.session", JSON.stringify(session));
         setTimeout(() => listeners.forEach(cb => cb("SIGNED_IN", session)));
         return { data: { session }, error: null };
+      },
+      async updateUser({ data }) {
+        // テスト用：window.__updateUserFail = true で失敗をまねる
+        if (!session || window.__updateUserFail) return { data: {}, error: { message: "fail" } };
+        session = { ...session, user: { ...session.user, user_metadata: { ...(session.user.user_metadata || {}), ...data } } };
+        localStorage.setItem("fake.session", JSON.stringify(session));
+        return { data: { user: session.user }, error: null };
       },
       async signOut() { session = null; localStorage.removeItem("fake.session"); listeners.forEach(cb => cb("SIGNED_OUT", null)); return { error: null }; }
     },
@@ -83,6 +95,9 @@ export function createClient() {
         }
         (window.__coachCalls = window.__coachCalls || []).push(body);
         if (!session) return { data: null, error: { context: { json: async () => ({ error: "not_signed_in" }) } } };
+        // テスト用：window.__coachFail = "daily_limit" などでサーバーのエラーを、window.__coachNetFail = true で通信の失敗をまねる
+        if (window.__coachNetFail) return { data: null, error: { message: "Failed to send a request to the Edge Function", context: null } };
+        if (window.__coachFail) return { data: null, error: { context: { json: async () => ({ error: window.__coachFail }) } } };
         return { data: { data: window.__fakeCoach ? window.__fakeCoach(body) : defaultCoach(body) }, error: null };
       }
     }

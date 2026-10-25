@@ -61,7 +61,7 @@ function toast(msg, ms = 3800) {
 
 /* ============ 保存（この端末） ============ */
 // 身内用：トーク履歴・学習記録・回答履歴は、この端末の中だけに保存する（サーバーには送らない）
-const K = { settings: "tk.settings.v1", mem: "tk.memory.v1", aiConsent: "tk.aiConsent.v1", oldPool: "tk.pool.v1", oldCards: "tk.cards.v1" };
+const K = { settings: "tk.settings.v1", mem: "tk.memory.v1", aiConsent: "tk.aiConsent.v1", sendOk: "tk.sendOk.v1", blocked: "tk.blocked.v1", oldPool: "tk.pool.v1", oldCards: "tk.cards.v1" };
 const pending = {};
 function saveLater(key, ms = 300) {
   clearTimeout(pending[key]);
@@ -76,6 +76,7 @@ function flushOne(key) {
 function flushAll() { for (const k of Object.keys(pending)) flushOne(k); }
 document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "hidden") flushAll();
+  else { checkNewDay(); S.micBlocked = false; } // 端末の設定でマイクを許可して戻ってきたら、もう一度試せるようにする
 });
 const saveCards = () => saveLater("cards");
 const saveLog = () => saveLater("log");
@@ -87,7 +88,7 @@ const canStudy = () => Cloud.configured();
 
 
 /* ============ 状態 ============ */
-const DEFAULT_SETTINGS = { newPerDay: 10, rate: 0.95, autoSpeak: true, sendContext: true, level: "intermediate" };
+const DEFAULT_SETTINGS = { newPerDay: 10, rate: 0.95, autoSpeak: true, sendContext: false, level: "intermediate" };
 const S = {
   view: "home",
   pool: null,            // { v:2, sources:[{key, partner, me, meIdx, names, msgs, count, at}], items:[{id, d, ja, src, mi}] }
@@ -98,6 +99,9 @@ const S = {
   settings: { ...DEFAULT_SETTINGS },
   aiConsent: null,       // AIへの送信の同意 { v, at }。この端末にだけ保存し、サーバーには送らない
   pendingPlan: null, consentFrom: null,
+  sendOk: {},            // 送る前の確認で送ってよいとした発言 id -> { at, c: { 前後の行の鍵: 1 送る / 0 送らない } }。この端末だけに保存
+  blocked: new Set(),    // 送る前の確認で外した発言の id。二度と出題しない（身内用：この端末だけに保存）
+  review: null,          // 送る前の確認の画面の状態
   ready: false, plan: null, session: null, setup: null, micBlocked: false
 };
 const allCards = () => Object.values(S.cards);
@@ -116,21 +120,27 @@ function cyrb53(str) {
 }
 function parseLineExport(raw) {
   const lines = raw.replace(/^\uFEFF/, "").split(/\r\n|\n|\r/);
-  const head = /^\[LINE\]\s*(.+?)とのトーク履歴/.exec(lines[0] || "");
-  const partner = head ? head[1].trim() : null;
+  // 1行目：日本語表示は「[LINE] 〇〇とのトーク履歴」、英語表示は「[LINE] Chat history with 〇〇」
+  const head = /^\[LINE\]\s*(?:(.+?)とのトーク履歴|Chat history (?:with|in) (.+?))\s*$/.exec(lines[0] || "");
+  const partner = head ? (head[1] || head[2]).trim() : null;
   const reDate = /^(\d{4})[\/.](\d{1,2})[\/.](\d{1,2})(\(.{1,3}\)|\s+\S{1,4})?\s*$/;
-  const reMsg = /^(\d{1,2}):(\d{2})\t(.*)$/;
+  // 英語表示の日付の行（例：Tue, 10/20/2026）
+  const reDateUS = /^(?:[A-Za-z]{3,9},?\s+)?(\d{1,2})\/(\d{1,2})\/(\d{4})(?:\s*\(?[A-Za-z]{3,9}\)?)?\s*$/;
+  // 時刻は「9:05」のほか、「午後1:20」「1:20 PM」の形もある
+  const reMsg = /^(午前|午後|AM|PM|am|pm)?\s?(\d{1,2}):(\d{2})(?:\s?(AM|PM|am|pm))?\t(.*)$/;
+  const hour24 = (h, a, b) => { const ap = (a || b || "").toLowerCase(); h = +h; if ((ap === "午後" || ap === "pm") && h < 12) h += 12; if ((ap === "午前" || ap === "am") && h === 12) h = 0; return h; };
   const msgs = [];
   let date = null, cur = null;
   for (let i = 0; i < lines.length; i++) {
     const ln = lines[i];
-    if (i < 3 && (/^\[LINE\]/.test(ln) || /^保存日時/.test(ln))) continue;
+    if (i < 3 && (/^\[LINE\]/.test(ln) || /^(保存日時|Saved on)/.test(ln))) continue;
     let m;
     if ((m = reDate.exec(ln))) { date = `${m[1]}-${pad2(m[2])}-${pad2(m[3])}`; cur = null; continue; }
+    if ((m = reDateUS.exec(ln))) { date = `${m[3]}-${pad2(m[1])}-${pad2(m[2])}`; cur = null; continue; }
     if ((m = reMsg.exec(ln))) {
-      const rest = m[3].split("\t");
+      const rest = m[5].split("\t");
       const named = rest.length >= 2;
-      cur = { d: date, t: `${pad2(m[1])}:${m[2]}`, name: named ? rest[0].trim() : "", text: named ? rest.slice(1).join("\t") : rest[0] };
+      cur = { d: date, t: `${pad2(hour24(m[2], m[1], m[4]))}:${m[3]}`, name: named ? rest[0].trim() : "", text: named ? rest.slice(1).join("\t") : rest[0] };
       msgs.push(cur);
       continue;
     }
@@ -212,7 +222,7 @@ function contextOf(item) {
   const empty = { before: [], after: [] };
   if (!item) return empty;
   const src = item.src && S.srcByKey.get(item.src);
-  if (!src || item.mi == null || !src.msgs[item.mi]) return item.ctx ? { before: [{ me: false, name: item.cn || "相手", text: item.ctx }], after: [] } : empty;
+  if (!src || item.mi == null || !src.msgs[item.mi]) return item.ctx ? { before: [{ me: false, name: item.cn || "相手", text: item.ctx, key: "c" }], after: [] } : empty;
   const m = src.msgs, day = m[item.mi][1];
   const take = (start, dir, n) => {
     const out = [];
@@ -222,7 +232,7 @@ function contextOf(item) {
       if (ni < 0) continue;
       const tt = String(text).trim();
       if (!tt || RE_SYSTEM.test(tt)) continue;
-      out.push({ me: ni === src.meIdx, name: src.names[ni] || "相手", text: Array.from(tt).slice(0, 140).join("") });
+      out.push({ me: ni === src.meIdx, name: src.names[ni] || "相手", text: Array.from(tt).slice(0, 140).join(""), key: String(j - item.mi) });
     }
     return dir < 0 ? out.reverse() : out;
   };
@@ -357,7 +367,7 @@ function sampleN(arr, n) {
 function pickFresh(n) {
   if (n <= 0 || !S.pool) return [];
   const known = new Set(allCards().map(c => c.ja));
-  const cand = S.pool.items.filter(it => !S.cards[it.id] && !known.has(it.ja) && !isSkipped(it.id));
+  const cand = S.pool.items.filter(it => !S.cards[it.id] && !known.has(it.ja) && !isSkipped(it.id) && !isBlocked(it.id));
   const good = cand.filter(it => len(it.ja) <= 45);
   return sampleN(good.length >= n ? good : cand, n);
 }
@@ -382,27 +392,53 @@ function makePlan(extraNew = 0) {
 /* ============ 音声（入力・読み上げ） ============ */
 let rec = null;
 function stopListening() { if (rec) { const r = rec; rec = null; r.stop(); } }
-function toggleListening(ta, btn, onChange) {
-  if (rec) { stopListening(); return; }
-  if (!Voice.supported() || S.micBlocked) { toast("この端末では音声入力が使えません。キーボードのマイクで英語を話してください。", 6000); return; }
-  const before = ta.value.trim() ? ta.value.trim() + " " : "";
-  const setOn = on => { btn.classList.toggle("on", on); btn.innerHTML = on ? ICON.stop : ICON.mic; btn.setAttribute("aria-label", on ? "音声入力を止める" : "英語で話す"); };
-  const waiting = { cancelled: false, stop() { this.cancelled = true; setOn(false); } };
-  rec = waiting; setOn(true);
-  Voice.start({
-    onText: s => { ta.value = before + s; onChange(); },
-    onEnd: () => { if (rec === waiting || (rec && rec !== waiting)) rec = null; setOn(false); },
-    onError: code => {
-      rec = null; setOn(false);
-      if (code === "not-allowed") { S.micBlocked = true; toast("マイクの使用が許可されていません。端末の設定で許可するか、キーボードのマイクを使ってください。", 6500); }
-      else if (code === "no-speech") toast("声が聞き取れませんでした。もう一度どうぞ。");
-      else if (code !== "aborted") toast("音声入力を開始できませんでした。");
-    }
-  }).then(ctrl => {
-    if (!ctrl) return;
-    if (waiting.cancelled) { ctrl.stop(); return; }
-    if (rec === waiting) rec = ctrl;
+// マイクのボタン：押している間だけ英語を聞き取り、離したら止める（黙っても、押している間は聞き続ける）
+const MIC_LABEL = "押している間、英語を聞き取る", MIC_ON_LABEL = "聞き取っています。離すと止まります";
+function micButton(ta, onChange, disabled) {
+  const btn = h("button", { class: "mic", type: "button", "aria-label": MIC_LABEL, html: ICON.mic, disabled });
+  const setOn = on => { btn.classList.toggle("on", on); btn.setAttribute("aria-label", on ? MIC_ON_LABEL : MIC_LABEL); };
+  const press = () => {
+    if (rec) return;
+    if (!Voice.supported() || S.micBlocked) { toast("この端末では音声入力が使えません。キーボードのマイクで英語を話してください。", 6000); return; }
+    const before = ta.value.trim() ? ta.value.trim() + " " : "", pressedAt = Date.now();
+    const waiting = { cancelled: false, stop() { this.cancelled = true; } }, mine = { ctrl: null };
+    const clear = () => { if (rec === waiting || (mine.ctrl && rec === mine.ctrl)) rec = null; };
+    rec = waiting; setOn(true);
+    Voice.start({
+      onText: s => { ta.value = before + s; onChange(); },
+      onEnd: info => {
+        clear(); setOn(false);
+        if (!(info && info.heard)) toast(Date.now() - pressedAt < 1500 ? "マイクのボタンを押したまま、英語で話してください。" : "声が聞き取れませんでした。もう一度どうぞ。");
+      },
+      onError: code => {
+        clear(); setOn(false);
+        if (code === "not-allowed") { S.micBlocked = true; toast("マイクの使用が許可されていません。端末の設定で許可するか、キーボードのマイクを使ってください。", 6500); }
+        else if (code === "unavailable") toast("この端末では音声入力が使えません。キーボードのマイクで英語を話してください。", 6000);
+        else if (code === "no-speech") toast("声が聞き取れませんでした。もう一度どうぞ。");
+        else if (code !== "aborted") toast("音声入力を開始できませんでした。");
+      }
+    }).then(ctrl => {
+      if (!ctrl) return;
+      mine.ctrl = ctrl;
+      if (waiting.cancelled) { ctrl.stop(); return; }
+      if (rec === waiting) rec = ctrl; else ctrl.stop();
+    });
+  };
+  // 離したとき：画面はすぐに戻し、最後の結果は Voice が入れ終えてから onEnd で知らせる
+  const release = () => { if (rec) { stopListening(); setOn(false); } };
+  btn.addEventListener("pointerdown", e => {
+    if (btn.disabled || (e.pointerType === "mouse" && e.button !== 0)) return;
+    e.preventDefault();
+    try { btn.setPointerCapture(e.pointerId); } catch {}
+    press();
   });
+  btn.addEventListener("pointerup", release);
+  btn.addEventListener("pointercancel", release);
+  btn.addEventListener("lostpointercapture", release);
+  btn.addEventListener("contextmenu", e => e.preventDefault()); // 長押しでメニューが出ないようにする
+  btn.addEventListener("keydown", e => { if ((e.key === " " || e.key === "Enter") && !e.repeat) { e.preventDefault(); press(); } });
+  btn.addEventListener("keyup", e => { if (e.key === " " || e.key === "Enter") { e.preventDefault(); release(); } });
+  return btn;
 }
 // 読み上げ：Google（Cloud Text-to-Speech の Chirp 3: HD）で作った音声を端末に保存し、同じ英文は保存したものを使う
 // 作るときはAIへの送信の同意が必要（sample：設定の「試しに聞く」の決まった英文は、同意の前でも作れる）
@@ -478,38 +514,175 @@ function speakable(s) {
 /* ============ AIコーチ（Supabase Edge Function 経由） ============ */
 // AIに送る前に、同意画面で同意を得る。同意はこの端末にだけ保存する
 // 同意画面の文案を大きく変えたら CONSENT_VERSION を上げて、同意を取り直す
-const CONSENT_VERSION = 3; // 2：送り先を Anthropic社から OpenAI社に替え、読み上げを加えた。3：読み上げの送り先を Google社に替えた
+const CONSENT_VERSION = 4; // 2：送り先を Anthropic社から OpenAI社に替え、読み上げを加えた。3：読み上げの送り先を Google社に替えた。4：main に合わせて文面を見直し、練習前の確認画面でチェックした発言だけを送るようにした
 const AI_NOTE = "AIの回答は誤ることがあります。";
 const hasConsent = () => !!(S.aiConsent && S.aiConsent.v >= CONSENT_VERSION);
 function setConsent(on) {
   S.aiConsent = on ? { v: CONSENT_VERSION, at: Date.now() } : null;
   if (on) LS.set(K.aiConsent, S.aiConsent); else LS.del(K.aiConsent);
 }
-// 「はじめる」：同意がまだなら、先に同意画面を出す
+// 「はじめる」：同意がまだなら先に同意画面を出し、そのあと送る前の確認に進む
 function requestStart(plan) {
   // 身内用：合言葉がまだなら、先に合言葉を入れてもらう（管理者の端末はいらない）
   if (!Cloud.hasInvite() && !Cloud.isAdmin()) { S.pendingPlan = plan; go("invite"); return; }
-  if (hasConsent()) { startSession(plan); return; }
+  if (hasConsent()) { beginReview(plan); return; }
   S.pendingPlan = plan; S.consentFrom = "start"; go("consent");
 }
-// 指示文（プロンプト）はサーバー側の supabase/functions/coach/prompts.ts にある
-// 端末から送るのは、問題文・回答・前後のやり取り（話し手は Me / Friend に置き換え、名前は送らない）だけ
-function contextPayload(item) {
-  if (!S.settings.sendContext) return null;
+/* ============ AIに送る前の確認 ============ */
+// 練習を始める前に、AIに送る予定の発言を一覧で見せ、利用者が送らない発言を外せるようにする（オプトアウト）
+// ・外した発言は二度と出題しない。チェックした発言は覚えておき、次からは聞かない
+// ・前後のやり取りは、設定でオンにしたときだけ一覧に並べ、チェックした行だけ送る
+// ・AIが「問題にしない」と判断したときの代わりも、ここで予備として見せておく（あとで黙って送らない）
+const SPARE_SHARE = 0.3;
+const isBlocked = id => S.blocked.has(id);
+const sentOk = item => !!(item && (S.cards[item.id] || S.sendOk[item.id]));
+function lineState(item, key) {
+  const r = item && S.sendOk[item.id];
+  return r && r.c && key in r.c ? r.c[key] : undefined;
+}
+function pendingLines(item) {
+  if (!S.settings.sendContext) return [];
   const cx = contextOf(item);
-  if (!cx.before.length && !cx.after.length) return null;
-  const labels = new Map();
-  const who = m => {
-    if (m.me) return "Me";
-    if (!labels.has(m.name)) labels.set(m.name, labels.size === 0 ? "Friend" : "Friend " + String.fromCharCode(66 + labels.size - 1));
-    return labels.get(m.name);
+  return [...cx.before, ...cx.after].filter(l => lineState(item, l.key) === undefined);
+}
+const needsReview = item => !sentOk(item) || pendingLines(item).length > 0;
+function reviewEntry(item, kind) {
+  const lines = new Map();
+  for (const l of pendingLines(item)) lines.set(l.key, true);
+  return { item, kind, main: true, lines };
+}
+function beginReview(plan) {
+  const fresh = plan.fresh.filter(it => !isBlocked(it.id));
+  const ids = new Set(fresh.map(it => it.id));
+  const nSpare = fresh.length ? Math.ceil(fresh.length * SPARE_SHARE) : 0;
+  const spares = nSpare ? pickFresh(fresh.length + nSpare).filter(it => !ids.has(it.id)).slice(0, nSpare) : [];
+  const entries = [
+    ...fresh.filter(needsReview).map(it => reviewEntry(it, "new")),
+    ...spares.filter(needsReview).map(it => reviewEntry(it, "spare")),
+    ...plan.reviews.map(id => S.cards[id]).filter(c => c && pendingLines(c).length).map(c => reviewEntry(c, "ctx"))
+  ];
+  const next = { ...plan, fresh, spares };
+  if (!entries.length) { startSession(next); return; }
+  S.review = { plan: next, entries };
+  go("review");
+}
+function cancelReview() { S.review = null; go("home"); }
+function confirmReview() {
+  const r = S.review;
+  if (!r) return;
+  const now = Date.now();
+  let blocked = 0;
+  for (const e of r.entries) {
+    const id = e.item.id;
+    if (e.kind !== "ctx" && !e.main) { S.blocked.add(id); blocked++; continue; }
+    const rec = S.sendOk[id] || { at: now, c: {} };
+    rec.c = rec.c || {};
+    for (const [k, on] of e.lines) rec.c[k] = on ? 1 : 0;
+    S.sendOk[id] = rec;
+  }
+  LS.set(K.sendOk, S.sendOk);
+  if (blocked) LS.set(K.blocked, [...S.blocked]);
+  const plan = { ...r.plan, fresh: r.plan.fresh.filter(it => !isBlocked(it.id)), spares: r.plan.spares.filter(it => !isBlocked(it.id)) };
+  S.review = null;
+  if (!plan.fresh.length && !plan.reviews.length) {
+    toast("外した発言は今後出題しません。");
+    go("home"); return;
+  }
+  startSession(plan);
+}
+function viewReview() {
+  const r = S.review;
+  if (!r) return viewHome();
+  const ctxOn = S.settings.sendContext;
+  const sum = h("p", { class: "rv-sum", "aria-live": "polite" });
+  const go1 = h("button", { class: "btn primary block", type: "button", onclick: confirmReview });
+  const update = () => {
+    const main = r.entries.filter(e => e.kind === "new" && e.main).length;
+    const spare = r.entries.filter(e => e.kind === "spare" && e.main).length;
+    const lines = r.entries.filter(e => e.main).reduce((n, e) => n + [...e.lines.values()].filter(Boolean).length, 0);
+    const nothing = !main && !r.plan.fresh.some(it => !needsReview(it)) && !r.plan.reviews.length;
+    sum.textContent = [`${main}件`, spare ? `予備${spare}件` : "", ctxOn ? `前後${lines}行` : ""].filter(Boolean).join("・");
+    go1.textContent = nothing ? "外した発言を保存して戻る" : "AIに送って始める";
   };
-  const line = m => ({ who: who(m), text: m.text });
-  return { before: cx.before.map(line), after: cx.after.map(line) };
+  // 前後の行の話し手は、送るときと同じく名前ではなく「自分」「相手」「相手B」で見せる（送る Friend / Friend B と同じ順）
+  const whoOf = cx => {
+    const labels = new Map();
+    for (const m of [...cx.before, ...cx.after]) if (!m.me && !labels.has(m.name)) labels.set(m.name, labels.size === 0 ? "相手" : "相手" + String.fromCharCode(66 + labels.size - 1));
+    return m => (m.me ? "自分" : labels.get(m.name));
+  };
+  const card = e => {
+    const it = e.item, cx = contextOf(it), who = whoOf(cx);
+    const li = h("li", { class: "rv-item" + (e.main ? "" : " off") });
+    const ctxInputs = [];
+    const lineRow = m => {
+      if (!e.lines.has(m.key)) return null; // すでに確認した行は、もう一度は聞かない
+      const on = e.lines.get(m.key);
+      const input = h("input", { type: "checkbox", checked: on, disabled: !e.main, "aria-label": `${who(m)}の発言を送る：${m.text}` });
+      const row = h("label", { class: "rv-line ctx" + (m.me ? " me" : "") + (on ? "" : " off") }, input,
+        h("span", { class: "rv-who", "aria-hidden": "true" }, who(m)), h("span", { class: "rv-text" }, m.text));
+      input.addEventListener("change", () => { e.lines.set(m.key, input.checked); row.classList.toggle("off", !input.checked); update(); });
+      ctxInputs.push(input);
+      return row;
+    };
+    const src = it.src && S.srcByKey.get(it.src);
+    const meta = [it.d ? fmtDate(it.d) : "", src && src.partner ? `${src.partner}とのトーク` : ""].filter(Boolean).join("・");
+    let mainRow;
+    if (e.kind === "ctx") {
+      mainRow = h("div", { class: "rv-line main fixed" }, h("span", { class: "rv-sent" }, "送信済み"), h("span", { class: "rv-text" }, it.ja));
+    } else {
+      const input = h("input", { type: "checkbox", checked: e.main, "aria-label": `この発言を送る：${it.ja}` });
+      mainRow = h("label", { class: "rv-line main" + (e.main ? "" : " off") }, input, h("span", { class: "rv-text" }, it.ja));
+      input.addEventListener("change", () => {
+        e.main = input.checked;
+        mainRow.classList.toggle("off", !e.main); li.classList.toggle("off", !e.main);
+        for (const c of ctxInputs) c.disabled = !e.main;
+        update();
+      });
+    }
+    if (e.lines.size) li.classList.add("has-ctx");
+    li.append(...[meta ? h("div", { class: "rv-meta" }, meta) : null,
+      ...cx.before.map(lineRow), mainRow, ...cx.after.map(lineRow)].filter(Boolean));
+    return li;
+  };
+  const group = (kind, title, note) => {
+    const es = r.entries.filter(e => e.kind === kind);
+    if (!es.length) return null;
+    return h("section", { class: "rv-group" }, h("h2", null, title), note ? h("p", { class: "note" }, note) : null,
+      h("ol", { class: "rv-list" }, es.map(card)));
+  };
+  update();
+  return h("div", { class: "view review" },
+    h("div", { class: "bar" }, navBtn("back", "戻る", cancelReview)),
+    h("div", { class: "intro rv-intro" },
+      h("p", { class: "title" }, "AIに送る発言の確認"),
+      h("p", null, "チェックした発言だけをAIに送ります。")),
+    h("p", { class: "rv-guide" }, "ほかの人の個人情報や、知られたくない内容が入った発言は外してください。外した発言は今後出題しません。"),
+    group("new", "練習する発言"),
+    group("spare", "予備（使うときだけ送ります）"),
+    group("ctx", "復習する発言の前後"),
+    h("div", { class: "fill" }),
+    h("div", { class: "composer" }, sum, go1));
+}
+// 指示文（プロンプト）はサーバー側の supabase/functions/coach/prompts.ts にある
+// 端末から送るのは、問題文・回答と、送る前の確認でチェックした前後のやり取り（話し手は Me / Friend に置き換える）だけ
+// 相手の名前（LINE の表示名）は送らない（2026年10月、利用者の判断）。自分の名前も送らない
+function aiPayload(item) {
+  if (!S.settings.sendContext) return { context: null };
+  const labels = new Map();
+  const label = name => {
+    if (!labels.has(name)) labels.set(name, labels.size === 0 ? "Friend" : "Friend " + String.fromCharCode(66 + labels.size - 1));
+    return labels.get(name);
+  };
+  const cx = contextOf(item), ok = l => lineState(item, l.key) === 1;
+  for (const m of [...cx.before, ...cx.after]) if (!m.me) label(m.name);
+  const line = m => ({ who: m.me ? "Me" : label(m.name), text: m.text });
+  const before = cx.before.filter(ok), after = cx.after.filter(ok);
+  return { context: before.length || after.length ? { before: before.map(line), after: after.map(line) } : null };
 }
 async function grade(item, answer, ref) {
   if (!hasConsent()) throw { code: "no_consent" };
-  const r = await Cloud.coach({ kind: "grade", ja: item.ja, answer, ref: ref || "", level: levelKey(), context: contextPayload(item) });
+  if (!sentOk(item)) throw { code: "not_reviewed" };
+  const r = await Cloud.coach({ kind: "grade", ja: item.ja, answer, ref: ref || "", level: levelKey(), ...aiPayload(item) });
   if (!r || typeof r.model !== "string" || !r.model.trim()) throw { code: "invalid_json" };
   const str = v => (typeof v === "string" ? v.trim() : "");
   const norm = x => x.toLowerCase().replace(/[\u2019`]/g, "'").replace(/[^a-z0-9']+/g, " ").trim();
@@ -525,7 +698,8 @@ async function grade(item, answer, ref) {
 }
 async function teach(item) {
   if (!hasConsent()) throw { code: "no_consent" };
-  const r = await Cloud.coach({ kind: "teach", ja: item.ja, level: levelKey(), context: contextPayload(item) });
+  if (!sentOk(item)) throw { code: "not_reviewed" };
+  const r = await Cloud.coach({ kind: "teach", ja: item.ja, level: levelKey(), ...aiPayload(item) });
   const str = v => (typeof v === "string" ? v.trim() : "");
   if (r && (r.worth === false || r.worth === "false")) return { skip: true, reason: str(r.skip_reason) };
   if (!r || typeof r.model !== "string" || !r.model.trim()) throw { code: "invalid_json" };
@@ -543,6 +717,7 @@ function errorCopy(code) {
   if (code === "offline") return "インターネットに接続されていません。接続してから、もう一度試してください。";
   if (code === "network") return "サーバーに接続できませんでした。電波の状態を確認して、もう一度試してください。";
   if (code === "refused") return "この文は採点できませんでした。とばして次へ進んでください。";
+  if (code === "not_reviewed") return "この発言は練習前の確認画面でチェックしていないため、AIに送れません。とばして次へ進んでください。";
   return "AIから返事を受け取れませんでした。もう一度試してください。";
 }
 
@@ -552,7 +727,7 @@ function startSession(plan) {
   const fresh = new Map(p.fresh.map(it => [it.id, it]));
   const queue = [...p.reviews, ...p.fresh.map(it => it.id)];
   if (!queue.length) return;
-  S.session = { queue, fresh, probes: p.probes || new Set(), total: queue.length, seen: {}, first: {}, missed: [], phase: "ask", cur: null, answer: "", result: null, lesson: null, error: null, kind: "" };
+  S.session = { queue, fresh, spares: (p.spares || []).slice(), probes: p.probes || new Set(), total: queue.length, seen: {}, first: {}, missed: [], phase: "ask", cur: null, answer: "", result: null, lesson: null, error: null, kind: "" };
   nextQuestion();
 }
 function newCard(item) {
@@ -573,7 +748,7 @@ function nextQuestion() {
 }
 const lessons = new Map();
 function lessonFor(item) {
-  const key = item.id + ":" + levelKey() + (S.settings.sendContext ? ":c" : "");
+  const key = item.id + ":" + levelKey() + ":" + JSON.stringify(aiPayload(item).context);
   if (!lessons.has(key)) lessons.set(key, teach(item).catch(e => { lessons.delete(key); throw e; }));
   return lessons.get(key);
 }
@@ -583,19 +758,21 @@ function prefetchNext() {
   if (!ss) return;
   for (const nid of ss.queue.slice(0, 3).filter(id => !S.cards[id] && !ss.seen[id]).slice(0, 2)) {
     const it = ss.fresh.get(nid);
-    if (it) lessonFor(it).catch(() => {});
+    if (it && sentOk(it)) lessonFor(it).catch(() => {});
   }
 }
 // AIが「問題にしない」と判定したら、何も表示せずに代わりの問題を1つ入れて次へ進む
+// 代わりは、送る前の確認で見せた予備の発言から順に使う。予備がなければ問題を1つ減らす
 function skipCurrent() {
   const ss = S.session, id = ss.cur;
   skippedNow.add(id);
   delete ss.seen[id];
   ss.skipped = (ss.skipped || 0) + 1;
   let rep = null;
-  if (ss.skipped <= 20) {
-    const used = new Set([...ss.queue, ...Object.keys(ss.seen), ...ss.fresh.keys()]);
-    rep = pickFresh(10).find(x => !used.has(x.id)) || null;
+  const used = new Set([...ss.queue, ...Object.keys(ss.seen), ...ss.fresh.keys()]);
+  while (!rep && ss.spares.length) {
+    const x = ss.spares.shift();
+    if (!used.has(x.id) && !S.cards[x.id] && !isBlocked(x.id) && sentOk(x)) rep = x;
   }
   if (rep) { ss.fresh.set(rep.id, rep); ss.queue.unshift(rep.id); }
   else ss.total = Math.max(Object.keys(ss.seen).length, ss.total - 1);
@@ -695,7 +872,7 @@ function render() {
   if (!S.ready) { app.replaceChildren(h("div", { class: "view" }, h("p", { class: "loading" }, "読み込んでいます…"))); return; }
   const v = S.view;
   const node = v === "setup" ? viewSetup() : v === "quiz" ? viewQuiz() : v === "done" ? viewDone()
-    : v === "weak" ? viewWeak() : v === "settings" ? viewSettings() : v === "consent" ? viewConsent() : v === "invite" ? viewInvite() : viewHome();
+    : v === "weak" ? viewWeak() : v === "settings" ? viewSettings() : v === "consent" ? viewConsent() : v === "review" ? viewReview() : v === "invite" ? viewInvite() : viewHome();
   app.replaceChildren(node);
 }
 function go(view) { stopListening(); closeConfirm(); S.view = view; if (view === "home") S.plan = null; render(); window.scrollTo(0, 0); }
@@ -728,6 +905,7 @@ function handleBack() {
   if (v === "done") { S.session = null; go("home"); return true; }
   if (v === "settings" || v === "weak") { go("home"); return true; }
   if (v === "invite") { S.pendingPlan = null; go("home"); return true; }
+  if (v === "review") { cancelReview(); return true; }
   if (v === "consent") {
     const to = S.consentFrom === "settings" ? "settings" : "home";
     S.pendingPlan = null; S.consentFrom = null; go(to); return true;
@@ -766,7 +944,7 @@ function viewSetup() {
           h("a", { href: LINE_EXPORT_HELP, target: "_blank", rel: "noopener" }, "くわしい手順（LINE公式ヘルプ）"))));
   }
   const speakers = Object.entries(st.parsed.speakers).sort((a, b) => b[1] - a[1]);
-  const items = buildItems(st.parsed.msgs, st.me, "preview");
+  const items = st.me ? buildItems(st.parsed.msgs, st.me, "preview") : [];
   const already = S.pool ? items.filter(it => S.poolIndex.has(it.id)).length : 0;
   const examples = items.filter(it => len(it.ja) >= 8 && len(it.ja) <= 40).slice(0, 400).sort(() => Math.random() - .5).slice(0, 3);
   return h("div", { class: "view" },
@@ -776,14 +954,16 @@ function viewSetup() {
       h("p", null, `${st.parsed.msgs.length.toLocaleString()}件のメッセージを読み込みました。`)),
     h("section", null,
       h("label", { class: "field", for: "me" }, "あなたの名前"),
+      st.me ? null : h("p", { class: "note", style: "margin:0 0 8px" }, "話した人が3人以上います。この中から、あなたの名前を選んでください。"),
       h("select", { id: "me", onchange: e => { st.me = e.target.value; render(); } },
+        st.me ? null : h("option", { value: "", selected: true, disabled: true }, "選んでください"),
         speakers.map(([n, c]) => h("option", { value: n, selected: n === st.me }, `${n}（${c.toLocaleString()}件）`))),
-      h("p", { class: "note", style: "margin-top:10px" }, `この名前の発言から、${items.length.toLocaleString()}問を作れます。スタンプ・写真・URLだけの発言は除いています。問題にする意味があるかは、出題するときにAIがあなたの英語レベルに合わせて判定します。`
-        + (already ? `うち${already.toLocaleString()}問は読み込み済みです（前後の文脈を追加します）。` : ""))),
+      st.me ? h("p", { class: "note", style: "margin-top:10px" }, `この名前の発言から、${items.length.toLocaleString()}問を作れます。スタンプ・写真・URLだけの発言は除いています。問題にする意味があるかは、出題するときにAIがあなたの英語レベルに合わせて判定します。`
+        + (already ? `うち${already.toLocaleString()}問は読み込み済みです（前後の文脈を追加します）。` : "")) : null),
     examples.length ? h("section", null, h("h2", null, "問題の例"),
       examples.map(it => h("div", { class: "row me" }, h("div", { class: "bubble mine" }, it.ja)))) : null,
     h("div", { style: "padding:8px 0 28px" },
-      h("button", { class: "btn primary block", type: "button", disabled: !items.length, onclick: () => {
+      h("button", { class: "btn primary block", type: "button", disabled: !st.me || !items.length, onclick: () => {
         const src = buildSource(st.parsed, st.me);
         const added = addSource(src, buildItems(st.parsed.msgs, st.me, src.key));
         S.setup = null; S.plan = null;
@@ -800,7 +980,8 @@ function loadTalkText(text, name) {
   if (!parsed.msgs.length || !names.length) { toast("LINEのトーク履歴として読み取れませんでした。「トーク履歴を送信」で作ったファイルを選んでください。", 6500); return; }
   const guess = Object.entries(parsed.speakers).filter(([n]) => n !== parsed.partner).sort((a, b) => b[1] - a[1])[0];
   stopListening(); closeConfirm();
-  S.setup = { parsed, me: guess ? guess[0] : names[0], name: name || "トーク履歴" };
+  // 話した人が3人以上（グループや、相手が途中で名前を変えた1対1）だと、いちばん多く話した人が自分とは限らないので、自分で選んでもらう
+  S.setup = { parsed, me: names.length > 2 ? "" : guess ? guess[0] : names[0], name: name || "トーク履歴" };
   S.view = "setup"; render(); window.scrollTo(0, 0);
 }
 async function onFile(file) {
@@ -822,7 +1003,7 @@ function viewHome() {
   if (!S.plan) S.plan = makePlan();
   const plan = S.plan;
   const nRev = plan.reviews.length, nNew = plan.fresh.length, total = nRev + nNew;
-  const unstudied = S.pool ? S.pool.items.filter(it => !S.cards[it.id] && !isSkipped(it.id)).length : 0;
+  const unstudied = S.pool ? S.pool.items.filter(it => !S.cards[it.id] && !isSkipped(it.id) && !isBlocked(it.id)).length : 0;
 
   const today = h("div", { class: "today" },
     h("span", { class: "lbl" }, "今日の問題"),
@@ -851,6 +1032,16 @@ function viewHome() {
 
 /* --- カレンダー（月・週・日） --- */
 const CAL = { mode: "month", sel: startOfDay(Date.now()), open: null };
+// 日付が変わったら（アプリを開いたまま0時をまたいだとき）、今日の問題とカレンダーを新しい日に合わせる
+let shownDay = startOfDay(Date.now());
+function checkNewDay() {
+  const today = startOfDay(Date.now());
+  if (today === shownDay) return;
+  if (CAL.sel === shownDay) CAL.sel = today;
+  shownDay = today; S.plan = null;
+  if (S.ready && (S.view === "home" || S.view === "done")) render();
+}
+setInterval(checkNewDay, 60000);
 function calIndex() {
   const now = Date.now(), today = startOfDay(now);
   const done = new Map();
@@ -1082,7 +1273,7 @@ function viewQuiz() {
 }
 function askComposer(ss) {
   const busy = ss.phase === "grading";
-  const ta = h("textarea", { rows: 1, lang: "en", placeholder: "英語で話すか、入力してください", "aria-label": "英語の回答", autocapitalize: "sentences", autocomplete: "off", spellcheck: "false", enterkeyhint: "send", disabled: busy, value: ss.answer });
+  const ta = h("textarea", { rows: 1, lang: "en", placeholder: "マイクを押したまま話すか、入力してください", "aria-label": "英語の回答", autocapitalize: "sentences", autocomplete: "off", spellcheck: "false", enterkeyhint: "send", disabled: busy, value: ss.answer });
   const send = h("button", { class: "btn primary", type: "button", disabled: busy || !ss.answer.trim(), onclick: () => check(false) }, busy ? "採点中…" : "答え合わせ");
   const grow = () => { ta.style.height = "auto"; ta.style.height = Math.min(ta.scrollHeight, 200) + "px"; };
   const onChange = () => { ss.answer = ta.value; send.disabled = busy || !ta.value.trim(); grow(); };
@@ -1090,7 +1281,7 @@ function askComposer(ss) {
   ta.addEventListener("keydown", e => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); if (ta.value.trim()) check(false); } });
   requestAnimationFrame(grow);
   const showMic = Voice.supported() && !S.micBlocked;
-  const mic = showMic ? h("button", { class: "mic", type: "button", "aria-label": "英語で話す", html: ICON.mic, disabled: busy, onclick: () => toggleListening(ta, mic, onChange) }) : null;
+  const mic = showMic ? micButton(ta, onChange, busy) : null;
   return h("div", { class: "composer" },
     h("div", { class: "ask-row" }, ta, mic),
     h("div", { class: "btn-row" },
@@ -1234,7 +1425,7 @@ function viewConsent() {
   const agree = () => {
     setConsent(true);
     S.pendingPlan = null; S.consentFrom = null;
-    if (from === "start" && plan) { startSession(plan); if (S.view !== "consent") return; }
+    if (from === "start" && plan) { beginReview(plan); if (S.view !== "consent") return; }
     toast("AIへの送信に同意しました。");
     go(from === "settings" ? "settings" : "home");
   };
@@ -1244,24 +1435,26 @@ function viewConsent() {
     h("div", { class: "bar" }, navBtn("back", "戻る", back)),
     h("div", { class: "intro" },
       h("p", { class: "title", style: "font-size:1.375rem" }, "AIコーチを使う前に"),
-      h("p", null, "お手本づくりと採点には OpenAI社のAIを、読み上げには Google社の音声合成を使います。AIコーチを使うと、次の内容が運営者のサーバーを経由して OpenAI社（読み上げる英文だけは Google社）に送られます。")),
+      h("p", null, "AIコーチを使うと、次の内容が運営者のサーバーを経由して各社に送られます。運営者のサーバーには保存しません。")),
+    // 送り先ごとに、送る内容を分けて書く。前後のやり取りは、設定の状態にかかわらず同じ文面にする（あとでオンにしたときも、この同意で足りるように）
     h("section", { style: "border-top:0" },
+      h("h3", { class: "data-h", style: "margin-top:0" }, "OpenAI社（お手本づくりと採点）"),
       h("ul", { class: "consent-list" },
-        li("問題にするあなたの発言（問題にしないと判断された発言も、判断のために送ります）"),
+        li("あなたの発言のうち、練習前の確認画面でチェックしたもの"),
         li("あなたの英語の回答と、前に表示したお手本"),
         li("設定した英語のレベル"),
-        li("読み上げる英文（お手本など）"),
-        li(S.settings.sendContext
-          ? "前後のやり取り（前3件・後ろ2件。相手の発言を含みます。名前は送りません。設定でオフにできます）"
-          : "前後のやり取り：今の設定では送りません（設定でオンにすると、前3件・後ろ2件を相手の発言も含めて送ります。名前は送りません）")),
-      h("p", { class: "note", style: "margin:12px 0 0" }, "運営者のサーバーには、これらを保存しません。OpenAI社・Google社での取り扱いは、各社のポリシー（",
+        li("設定でオンにしたときは、前後のやり取り（相手の発言を含む前3件・後ろ2件）のうち、確認画面でチェックしたもの")),
+      h("h3", { class: "data-h" }, "Google社（読み上げ）"),
+      h("ul", { class: "consent-list" }, li("読み上げる英文（お手本など）")),
+      h("p", { class: "note", style: "margin:12px 0 0" }, "会話の相手の名前（LINEの表示名）は送りません。"),
+      h("p", { class: "note", style: "margin:8px 0 0" }, "OpenAI社・Google社での取り扱いは、各社のポリシー（",
         h("a", { href: "https://openai.com/policies/", target: "_blank", rel: "noopener" }, "openai.com/policies"), "、",
         h("a", { href: "https://cloud.google.com/terms/cloud-privacy-notice", target: "_blank", rel: "noopener" }, "Google Cloud のプライバシー通知"), "）に従います。"),
-      h("p", { class: "note", style: "margin:8px 0 0" }, "読み上げの声は、AIで作った合成音声です。作った音声はこの端末に保存し、同じ英文を読み上げるときに使います。"),
+      h("p", { class: "note", style: "margin:8px 0 0" }, "読み上げの声はAIの合成音声です。作った音声はこの端末に保存します。"),
       h("p", { class: "banner" }, AI_NOTE + "お手本や判定は参考としてお使いください。")),
     h("div", { style: "padding:8px 0 28px" },
       hasConsent()
-        ? [h("p", { class: "note", style: "margin:0 0 12px" }, `${fmtYMD(S.aiConsent.at)}に同意しています。取り消すときは、設定の「データの取り扱いについて」から取り消せます。`),
+        ? [h("p", { class: "note", style: "margin:0 0 12px" }, `${fmtYMD(S.aiConsent.at)}に同意しています。設定の「データの取り扱いについて」で取り消せます。`),
            h("button", { class: "btn ghost block", type: "button", onclick: back }, "戻る")]
         : h("div", { class: "btn-row", style: "margin-top:0" },
             h("button", { class: "btn ghost", type: "button", onclick: decline }, "同意しない"),
@@ -1324,7 +1517,7 @@ function viewSettings() {
     h("div", { class: "bar" }, navBtn("back", "戻る", () => go("home")), h("h1", { style: "font-size:1.125rem" }, "設定")),
     h("section", { style: "border-top:0;padding-top:4px" }, h("h2", null, "翻訳と採点"),
       h("div", { class: "row-set" }, h("span", null, "前後のやり取りも踏まえて訳す"), sw(st.sendContext, "前後のやり取りも踏まえて訳す", () => { st.sendContext = !st.sendContext; persistSettings(); })),
-      h("p", { class: "note", style: "margin:8px 0 0" }, "オンにすると、対象の発言の前3件・後ろ2件（同じ日のやり取り）も、相手の発言を含めてAIに送ります。話し手の名前は送りません。")),
+      h("p", { class: "note", style: "margin:8px 0 0" }, "オンにすると、問題にする発言の前後（同じ日の前3件・後ろ2件）も練習前の確認画面に並び、チェックしたものだけAIに送ります。相手の発言も含みます。")),
     h("section", null, h("h2", null, "あなたの英語レベル"),
       h("div", { class: "seg" }, Object.entries(LEVELS).map(([k, v]) => h("button", { class: "plain", type: "button", "aria-pressed": String(levelKey() === k),
         onclick: () => { st.level = k; persistSettings(); skippedNow.clear(); S.plan = null; render(); } }, v.name))),
@@ -1358,7 +1551,7 @@ function viewSettings() {
       note("学習・回答データはお使いの端末内のみに保存され、サーバーには送信・保管されません。アプリを削除したり端末を替えたりすると、データは消えます。"),
       h("h3", { class: "data-h" }, "外部AI（OpenAI API・Google Cloud）との連携"),
       // 前後の文脈は、設定でオフにしているときは送らないので、文面からも外す
-      note(`採点やお手本の作成にあたり、ユーザーの発言や回答、過去の提示例、設定レベル${st.sendContext ? "、前後の文脈" : ""}が、運営サーバーを経由してOpenAI社のAPIへ一時送信されます。読み上げの音声の作成にあたり、お手本などの英文が、運営サーバーを経由してGoogle社のAPI（Cloud Text-to-Speech）へ一時送信されます。これらのデータが運営サーバーに残ることはありません。`),
+      note(`採点やお手本の作成にあたり、練習前の確認画面でチェックしたユーザーの発言${st.sendContext ? "と前後の文脈" : ""}、回答、過去の提示例、設定レベルが、運営サーバーを経由してOpenAI社のAPIへ一時送信されます。会話の相手の名前は送信しません。読み上げの音声の作成にあたり、お手本などの英文が、運営サーバーを経由してGoogle社のAPI（Cloud Text-to-Speech）へ一時送信されます。これらのデータが運営サーバーに残ることはありません。`),
       note("読み上げの音声はAIによる合成音声です。作成した音声はお使いの端末内に保存し、繰り返し使います。"),
       note("使いすぎを防ぐため、端末ごとに作ったランダムなIDと1日の利用回数をサーバーに記録します。"),
       h("h3", { class: "data-h" }, "AI出力に関する注意事項"),
@@ -1397,6 +1590,8 @@ async function boot() {
   const st = LS.get(K.settings); if (st) { delete st.model; Object.assign(S.settings, st); }
   const mem = LS.get(K.mem); if (mem) Object.assign(S.mem, mem);
   S.aiConsent = LS.get(K.aiConsent) || null;
+  const ok = LS.get(K.sendOk); if (ok && typeof ok === "object") S.sendOk = ok;
+  const bl = LS.get(K.blocked); if (Array.isArray(bl)) S.blocked = new Set(bl);
   render();
   await Store.init();
   let [pool, cards, log] = await Promise.all([Store.get("pool"), Store.get("cards"), Store.get("log")]);
