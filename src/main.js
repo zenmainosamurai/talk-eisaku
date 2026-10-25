@@ -62,7 +62,7 @@ function toast(msg, ms = 3800) {
 
 /* ============ 保存（この端末） ============ */
 // トーク履歴は端末の外に出さない。学習記録と回答履歴は、暗号化して Cloud が同期する
-const K = { settings: "tk.settings.v1", mem: "tk.memory.v1", metaAt: "tk.metaAt.v1", wipedAt: "tk.wipedAt.v1", aiConsent: "tk.aiConsent.v1", terms: "tk.terms.v1", oldPool: "tk.pool.v1", oldCards: "tk.cards.v1" };
+const K = { settings: "tk.settings.v1", mem: "tk.memory.v1", metaAt: "tk.metaAt.v1", wipedAt: "tk.wipedAt.v1", aiConsent: "tk.aiConsent.v1", terms: "tk.terms.v1", sendOk: "tk.sendOk.v1", blocked: "tk.blocked.v1", oldPool: "tk.pool.v1", oldCards: "tk.cards.v1" };
 const pending = {};
 function saveLater(key, ms = 300) {
   clearTimeout(pending[key]);
@@ -98,7 +98,7 @@ const canStudy = () => Cloud.signedIn() && Cloud.status !== "checking";
 
 
 /* ============ 状態 ============ */
-const DEFAULT_SETTINGS = { newPerDay: 10, rate: 0.95, autoSpeak: true, sendContext: true, level: "intermediate" };
+const DEFAULT_SETTINGS = { newPerDay: 10, rate: 0.95, autoSpeak: true, sendContext: false, level: "intermediate" };
 const S = {
   view: "home",
   pool: null,            // { v:2, sources:[{key, partner, me, meIdx, names, msgs, count, at}], items:[{id, d, ja, src, mi}] }
@@ -111,6 +111,9 @@ const S = {
   aiConsent: null,       // AIへの送信の同意 { v, at }。この端末にだけ保存し、サーバーには送らない
   terms: null,           // 利用規約・プライバシーポリシーへの同意 { v, at, email?, uid? }。サーバーにもアカウントの情報として記録する
   pendingPlan: null, consentFrom: null,
+  sendOk: {},            // 送る前の確認で送ってよいとした発言 id -> { at, c: { 前後の行の鍵: 1 送る / 0 送らない } }。この端末だけに保存
+  blocked: new Set(),    // 送る前の確認で外した発言の id。二度と出題しない（暗号化して同期する）
+  review: null,          // 送る前の確認の画面の状態
   ready: false, plan: null, session: null, setup: null, micBlocked: false
 };
 const allCards = () => Object.values(S.cards);
@@ -231,7 +234,7 @@ function contextOf(item) {
   const empty = { before: [], after: [] };
   if (!item) return empty;
   const src = item.src && S.srcByKey.get(item.src);
-  if (!src || item.mi == null || !src.msgs[item.mi]) return item.ctx ? { before: [{ me: false, name: item.cn || "相手", text: item.ctx }], after: [] } : empty;
+  if (!src || item.mi == null || !src.msgs[item.mi]) return item.ctx ? { before: [{ me: false, name: item.cn || "相手", text: item.ctx, key: "c" }], after: [] } : empty;
   const m = src.msgs, day = m[item.mi][1];
   const take = (start, dir, n) => {
     const out = [];
@@ -241,7 +244,7 @@ function contextOf(item) {
       if (ni < 0) continue;
       const tt = String(text).trim();
       if (!tt || RE_SYSTEM.test(tt)) continue;
-      out.push({ me: ni === src.meIdx, name: src.names[ni] || "相手", text: Array.from(tt).slice(0, 140).join("") });
+      out.push({ me: ni === src.meIdx, name: src.names[ni] || "相手", text: Array.from(tt).slice(0, 140).join(""), key: String(j - item.mi) });
     }
     return dir < 0 ? out.reverse() : out;
   };
@@ -376,7 +379,7 @@ function sampleN(arr, n) {
 function pickFresh(n) {
   if (n <= 0 || !S.pool) return [];
   const known = new Set(allCards().map(c => c.ja));
-  const cand = S.pool.items.filter(it => !S.cards[it.id] && !known.has(it.ja) && !isSkipped(it.id));
+  const cand = S.pool.items.filter(it => !S.cards[it.id] && !known.has(it.ja) && !isSkipped(it.id) && !isBlocked(it.id));
   const good = cand.filter(it => len(it.ja) <= 45);
   return sampleN(good.length >= n ? good : cand, n);
 }
@@ -549,45 +552,165 @@ function setConsent(on) {
   S.aiConsent = on ? { v: CONSENT_VERSION, at: Date.now() } : null;
   if (on) LS.set(K.aiConsent, S.aiConsent); else LS.del(K.aiConsent);
 }
-// 「はじめる」：同意がまだなら、先に同意画面を出す
+// 「はじめる」：同意がまだなら先に同意画面を出し、そのあと送る前の確認に進む
 function requestStart(plan) {
-  if (hasConsent()) { startSession(plan); return; }
+  if (hasConsent()) { beginReview(plan); return; }
   S.pendingPlan = plan; S.consentFrom = "start"; go("consent");
 }
-// 指示文（プロンプト）はサーバー側の supabase/functions/coach/prompts.ts にある
-// 端末から送るのは、問題文・回答・前後のやり取り（話し手は Me / Friend に置き換える）と、会話の相手の名前（LINE の表示名）だけ
-// 相手の名前は、英訳で相手の名前や愛称を you などにするために送る（2026年10月、利用者の判断）。自分の名前は送らない
-const MAX_PEOPLE = 8;
-const othersCache = new WeakMap();
-// このトークで自分以外に話した人の名前。多く話した順
-function othersOf(src) {
-  if (othersCache.has(src)) return othersCache.get(src);
-  const counts = new Map();
-  for (const [ni] of src.msgs || []) if (ni >= 0 && ni !== src.meIdx) counts.set(ni, (counts.get(ni) || 0) + 1);
-  const names = [...counts.entries()].sort((a, b) => b[1] - a[1]).map(([ni]) => src.names[ni]).filter(Boolean);
-  othersCache.set(src, names);
-  return names;
+/* ============ AIに送る前の確認 ============ */
+// 練習を始める前に、AIに送る予定の発言を一覧で見せ、利用者が送らない発言を外せるようにする（オプトアウト）
+// ・外した発言は二度と出題しない。チェックした発言は覚えておき、次からは聞かない
+// ・前後のやり取りは、設定でオンにしたときだけ一覧に並べ、チェックした行だけ送る
+// ・AIが「問題にしない」と判断したときの代わりも、ここで予備として見せておく（あとで黙って送らない）
+const SPARE_SHARE = 0.3;
+const isBlocked = id => S.blocked.has(id);
+const sentOk = item => !!(item && (S.cards[item.id] || S.sendOk[item.id]));
+function lineState(item, key) {
+  const r = item && S.sendOk[item.id];
+  return r && r.c && key in r.c ? r.c[key] : undefined;
 }
+function pendingLines(item) {
+  if (!S.settings.sendContext) return [];
+  const cx = contextOf(item);
+  return [...cx.before, ...cx.after].filter(l => lineState(item, l.key) === undefined);
+}
+const needsReview = item => !sentOk(item) || pendingLines(item).length > 0;
+function reviewEntry(item, kind) {
+  const lines = new Map();
+  for (const l of pendingLines(item)) lines.set(l.key, true);
+  return { item, kind, main: true, lines };
+}
+function beginReview(plan) {
+  const fresh = plan.fresh.filter(it => !isBlocked(it.id));
+  const ids = new Set(fresh.map(it => it.id));
+  const nSpare = fresh.length ? Math.ceil(fresh.length * SPARE_SHARE) : 0;
+  const spares = nSpare ? pickFresh(fresh.length + nSpare).filter(it => !ids.has(it.id)).slice(0, nSpare) : [];
+  const entries = [
+    ...fresh.filter(needsReview).map(it => reviewEntry(it, "new")),
+    ...spares.filter(needsReview).map(it => reviewEntry(it, "spare")),
+    ...plan.reviews.map(id => S.cards[id]).filter(c => c && pendingLines(c).length).map(c => reviewEntry(c, "ctx"))
+  ];
+  const next = { ...plan, fresh, spares };
+  if (!entries.length) { startSession(next); return; }
+  S.review = { plan: next, entries };
+  go("review");
+}
+function cancelReview() { S.review = null; go("home"); }
+function confirmReview() {
+  const r = S.review;
+  if (!r) return;
+  const now = Date.now();
+  let blocked = 0;
+  for (const e of r.entries) {
+    const id = e.item.id;
+    if (e.kind !== "ctx" && !e.main) { S.blocked.add(id); blocked++; continue; }
+    const rec = S.sendOk[id] || { at: now, c: {} };
+    rec.c = rec.c || {};
+    for (const [k, on] of e.lines) rec.c[k] = on ? 1 : 0;
+    S.sendOk[id] = rec;
+  }
+  LS.set(K.sendOk, S.sendOk);
+  if (blocked) { LS.set(K.blocked, [...S.blocked]); Cloud.markMeta(); }
+  const plan = { ...r.plan, fresh: r.plan.fresh.filter(it => !isBlocked(it.id)), spares: r.plan.spares.filter(it => !isBlocked(it.id)) };
+  S.review = null;
+  if (!plan.fresh.length && !plan.reviews.length) {
+    toast("外した発言は今後出題しません。");
+    go("home"); return;
+  }
+  startSession(plan);
+}
+function viewReview() {
+  const r = S.review;
+  if (!r) return viewHome();
+  const ctxOn = S.settings.sendContext;
+  const sum = h("p", { class: "rv-sum", "aria-live": "polite" });
+  const go1 = h("button", { class: "btn primary block", type: "button", onclick: confirmReview });
+  const update = () => {
+    const main = r.entries.filter(e => e.kind === "new" && e.main).length;
+    const spare = r.entries.filter(e => e.kind === "spare" && e.main).length;
+    const lines = r.entries.filter(e => e.main).reduce((n, e) => n + [...e.lines.values()].filter(Boolean).length, 0);
+    const nothing = !main && !r.plan.fresh.some(it => !needsReview(it)) && !r.plan.reviews.length;
+    sum.textContent = [`${main}件`, spare ? `予備${spare}件` : "", ctxOn ? `前後${lines}行` : ""].filter(Boolean).join("・");
+    go1.textContent = nothing ? "外した発言を保存して戻る" : "AIに送って始める";
+  };
+  // 前後の行の話し手は、送るときと同じく名前ではなく「自分」「相手」「相手B」で見せる（送る Friend / Friend B と同じ順）
+  const whoOf = cx => {
+    const labels = new Map();
+    for (const m of [...cx.before, ...cx.after]) if (!m.me && !labels.has(m.name)) labels.set(m.name, labels.size === 0 ? "相手" : "相手" + String.fromCharCode(66 + labels.size - 1));
+    return m => (m.me ? "自分" : labels.get(m.name));
+  };
+  const card = e => {
+    const it = e.item, cx = contextOf(it), who = whoOf(cx);
+    const li = h("li", { class: "rv-item" + (e.main ? "" : " off") });
+    const ctxInputs = [];
+    const lineRow = m => {
+      if (!e.lines.has(m.key)) return null; // すでに確認した行は、もう一度は聞かない
+      const on = e.lines.get(m.key);
+      const input = h("input", { type: "checkbox", checked: on, disabled: !e.main, "aria-label": `${who(m)}の発言を送る：${m.text}` });
+      const row = h("label", { class: "rv-line ctx" + (m.me ? " me" : "") + (on ? "" : " off") }, input,
+        h("span", { class: "rv-who", "aria-hidden": "true" }, who(m)), h("span", { class: "rv-text" }, m.text));
+      input.addEventListener("change", () => { e.lines.set(m.key, input.checked); row.classList.toggle("off", !input.checked); update(); });
+      ctxInputs.push(input);
+      return row;
+    };
+    const src = it.src && S.srcByKey.get(it.src);
+    const meta = [it.d ? fmtDate(it.d) : "", src && src.partner ? `${src.partner}とのトーク` : ""].filter(Boolean).join("・");
+    let mainRow;
+    if (e.kind === "ctx") {
+      mainRow = h("div", { class: "rv-line main fixed" }, h("span", { class: "rv-sent" }, "送信済み"), h("span", { class: "rv-text" }, it.ja));
+    } else {
+      const input = h("input", { type: "checkbox", checked: e.main, "aria-label": `この発言を送る：${it.ja}` });
+      mainRow = h("label", { class: "rv-line main" + (e.main ? "" : " off") }, input, h("span", { class: "rv-text" }, it.ja));
+      input.addEventListener("change", () => {
+        e.main = input.checked;
+        mainRow.classList.toggle("off", !e.main); li.classList.toggle("off", !e.main);
+        for (const c of ctxInputs) c.disabled = !e.main;
+        update();
+      });
+    }
+    if (e.lines.size) li.classList.add("has-ctx");
+    li.append(...[meta ? h("div", { class: "rv-meta" }, meta) : null,
+      ...cx.before.map(lineRow), mainRow, ...cx.after.map(lineRow)].filter(Boolean));
+    return li;
+  };
+  const group = (kind, title, note) => {
+    const es = r.entries.filter(e => e.kind === kind);
+    if (!es.length) return null;
+    return h("section", { class: "rv-group" }, h("h2", null, title), note ? h("p", { class: "note" }, note) : null,
+      h("ol", { class: "rv-list" }, es.map(card)));
+  };
+  update();
+  return h("div", { class: "view review" },
+    h("div", { class: "bar" }, navBtn("back", "戻る", cancelReview)),
+    h("div", { class: "intro rv-intro" },
+      h("p", { class: "title" }, "AIに送る発言の確認"),
+      h("p", null, "チェックした発言だけをAIに送ります。")),
+    h("p", { class: "rv-guide" }, "ほかの人の個人情報や、知られたくない内容が入った発言は外してください。外した発言は今後出題しません。"),
+    group("new", "練習する発言"),
+    group("spare", "予備（使うときだけ送ります）"),
+    group("ctx", "復習する発言の前後"),
+    h("div", { class: "fill" }),
+    h("div", { class: "composer" }, sum, go1));
+}
+// 指示文（プロンプト）はサーバー側の supabase/functions/coach/prompts.ts にある
+// 端末から送るのは、問題文・回答と、送る前の確認でチェックした前後のやり取り（話し手は Me / Friend に置き換える）だけ
+// 相手の名前（LINE の表示名）は送らない（2026年10月、利用者の判断）。自分の名前も送らない
 function aiPayload(item) {
+  if (!S.settings.sendContext) return { context: null };
   const labels = new Map();
   const label = name => {
     if (!labels.has(name)) labels.set(name, labels.size === 0 ? "Friend" : "Friend " + String.fromCharCode(66 + labels.size - 1));
     return labels.get(name);
   };
-  let context = null;
-  if (S.settings.sendContext) {
-    const cx = contextOf(item);
-    const line = m => ({ who: m.me ? "Me" : label(m.name), text: m.text });
-    if (cx.before.length || cx.after.length) context = { before: cx.before.map(line), after: cx.after.map(line) };
-  }
-  const src = item && item.src && S.srcByKey.get(item.src);
-  const others = src ? othersOf(src) : item && item.cn ? [item.cn] : [];
-  for (const n of others) { if (labels.size >= MAX_PEOPLE) break; label(n); }
-  const people = [...labels.entries()].filter(([n]) => n && n !== "相手").slice(0, MAX_PEOPLE).map(([name, who]) => ({ who, name: Array.from(name).slice(0, 40).join("") }));
-  return { context, people };
+  const cx = contextOf(item), ok = l => lineState(item, l.key) === 1;
+  for (const m of [...cx.before, ...cx.after]) if (!m.me) label(m.name);
+  const line = m => ({ who: m.me ? "Me" : label(m.name), text: m.text });
+  const before = cx.before.filter(ok), after = cx.after.filter(ok);
+  return { context: before.length || after.length ? { before: before.map(line), after: after.map(line) } : null };
 }
 async function grade(item, answer, ref) {
   if (!hasConsent()) throw { code: "no_consent" };
+  if (!sentOk(item)) throw { code: "not_reviewed" };
   const r = await Cloud.coach({ kind: "grade", ja: item.ja, answer, ref: ref || "", level: levelKey(), ...aiPayload(item) });
   if (!r || typeof r.model !== "string" || !r.model.trim()) throw { code: "invalid_json" };
   const str = v => (typeof v === "string" ? v.trim() : "");
@@ -604,6 +727,7 @@ async function grade(item, answer, ref) {
 }
 async function teach(item) {
   if (!hasConsent()) throw { code: "no_consent" };
+  if (!sentOk(item)) throw { code: "not_reviewed" };
   const r = await Cloud.coach({ kind: "teach", ja: item.ja, level: levelKey(), ...aiPayload(item) });
   const str = v => (typeof v === "string" ? v.trim() : "");
   if (r && (r.worth === false || r.worth === "false")) return { skip: true, reason: str(r.skip_reason) };
@@ -622,6 +746,7 @@ function errorCopy(code) {
   if (code === "offline") return "インターネットに接続されていません。接続してから、もう一度試してください。";
   if (code === "network") return "サーバーに接続できませんでした。電波の状態を確認して、もう一度試してください。";
   if (code === "refused") return "この文は採点できませんでした。とばして次へ進んでください。";
+  if (code === "not_reviewed") return "この発言は練習前の確認画面でチェックしていないため、AIに送れません。とばして次へ進んでください。";
   return "AIから返事を受け取れませんでした。もう一度試してください。";
 }
 
@@ -631,7 +756,7 @@ function startSession(plan) {
   const fresh = new Map(p.fresh.map(it => [it.id, it]));
   const queue = [...p.reviews, ...p.fresh.map(it => it.id)];
   if (!queue.length) return;
-  S.session = { queue, fresh, probes: p.probes || new Set(), total: queue.length, seen: {}, first: {}, missed: [], phase: "ask", cur: null, answer: "", result: null, lesson: null, error: null, kind: "" };
+  S.session = { queue, fresh, spares: (p.spares || []).slice(), probes: p.probes || new Set(), total: queue.length, seen: {}, first: {}, missed: [], phase: "ask", cur: null, answer: "", result: null, lesson: null, error: null, kind: "" };
   nextQuestion();
 }
 function newCard(item) {
@@ -652,7 +777,7 @@ function nextQuestion() {
 }
 const lessons = new Map();
 function lessonFor(item) {
-  const key = item.id + ":" + levelKey() + (S.settings.sendContext ? ":c" : "");
+  const key = item.id + ":" + levelKey() + ":" + JSON.stringify(aiPayload(item).context);
   if (!lessons.has(key)) lessons.set(key, teach(item).catch(e => { lessons.delete(key); throw e; }));
   return lessons.get(key);
 }
@@ -662,19 +787,21 @@ function prefetchNext() {
   if (!ss) return;
   for (const nid of ss.queue.slice(0, 3).filter(id => !S.cards[id] && !ss.seen[id]).slice(0, 2)) {
     const it = ss.fresh.get(nid);
-    if (it) lessonFor(it).catch(() => {});
+    if (it && sentOk(it)) lessonFor(it).catch(() => {});
   }
 }
 // AIが「問題にしない」と判定したら、何も表示せずに代わりの問題を1つ入れて次へ進む
+// 代わりは、送る前の確認で見せた予備の発言から順に使う。予備がなければ問題を1つ減らす
 function skipCurrent() {
   const ss = S.session, id = ss.cur;
   skippedNow.add(id);
   delete ss.seen[id];
   ss.skipped = (ss.skipped || 0) + 1;
   let rep = null;
-  if (ss.skipped <= 20) {
-    const used = new Set([...ss.queue, ...Object.keys(ss.seen), ...ss.fresh.keys()]);
-    rep = pickFresh(10).find(x => !used.has(x.id)) || null;
+  const used = new Set([...ss.queue, ...Object.keys(ss.seen), ...ss.fresh.keys()]);
+  while (!rep && ss.spares.length) {
+    const x = ss.spares.shift();
+    if (!used.has(x.id) && !S.cards[x.id] && !isBlocked(x.id) && sentOk(x)) rep = x;
   }
   if (rep) { ss.fresh.set(rep.id, rep); ss.queue.unshift(rep.id); }
   else ss.total = Math.max(Object.keys(ss.seen).length, ss.total - 1);
@@ -784,7 +911,7 @@ function render() {
   if (!S.ready) { app.replaceChildren(h("div", { class: "view" }, h("p", { class: "loading" }, "読み込んでいます…"))); return; }
   const v = shownView();
   const node = v === "setup" ? viewSetup() : v === "login" ? viewLogin() : v === "vaultSetup" ? viewVaultSetup() : v === "vaultUnlock" ? viewVaultUnlock() : v === "quiz" ? viewQuiz() : v === "done" ? viewDone()
-    : v === "weak" ? viewWeak() : v === "settings" ? viewSettings() : v === "consent" ? viewConsent() : v === "deleteAccount" ? viewDeleteAccount() : v === "terms" ? viewTerms() : viewHome();
+    : v === "weak" ? viewWeak() : v === "settings" ? viewSettings() : v === "consent" ? viewConsent() : v === "review" ? viewReview() : v === "deleteAccount" ? viewDeleteAccount() : v === "terms" ? viewTerms() : viewHome();
   app.replaceChildren(node);
 }
 function go(view) { stopListening(); closeConfirm(); S.view = view; if (view === "home") S.plan = null; render(); window.scrollTo(0, 0); }
@@ -817,6 +944,7 @@ function handleBack() {
   if (v === "done") { S.session = null; go("home"); return true; }
   if (v === "settings" || v === "weak" || v === "login") { go("home"); return true; }
   if (v === "deleteAccount") { if (!DELETE.busy) go("settings"); return true; }
+  if (v === "review") { cancelReview(); return true; }
   if (v === "consent") {
     const to = S.consentFrom === "settings" ? "settings" : "home";
     S.pendingPlan = null; S.consentFrom = null; go(to); return true;
@@ -915,7 +1043,7 @@ function viewHome() {
   if (!S.plan) S.plan = makePlan();
   const plan = S.plan;
   const nRev = plan.reviews.length, nNew = plan.fresh.length, total = nRev + nNew;
-  const unstudied = S.pool ? S.pool.items.filter(it => !S.cards[it.id] && !isSkipped(it.id)).length : 0;
+  const unstudied = S.pool ? S.pool.items.filter(it => !S.cards[it.id] && !isSkipped(it.id) && !isBlocked(it.id)).length : 0;
 
   const today = h("div", { class: "today" },
     h("span", { class: "lbl" }, "今日の問題"),
@@ -1367,7 +1495,7 @@ function viewConsent() {
   const agree = () => {
     setConsent(true);
     S.pendingPlan = null; S.consentFrom = null;
-    if (from === "start" && plan) { startSession(plan); if (S.view !== "consent") return; }
+    if (from === "start" && plan) { beginReview(plan); if (S.view !== "consent") return; }
     toast("AIへの送信に同意しました。");
     go(from === "settings" ? "settings" : "home");
   };
@@ -1380,14 +1508,14 @@ function viewConsent() {
       h("p", null, "お手本づくりと採点には OpenAI社のAIを、読み上げには Google社の音声合成を使います。AIコーチを使うと、次の内容が運営者のサーバーを経由して OpenAI社（読み上げる英文だけは Google社）に送られます。")),
     h("section", { style: "border-top:0" },
       h("ul", { class: "consent-list" },
-        li("問題にするあなたの発言（問題にしないと判断された発言も、判断のために送ります）"),
+        li("問題にするあなたの発言（送らない発言は、練習前の確認画面で外せます。問題にしないと判断された発言も、判断のために送ります）"),
         li("あなたの英語の回答と、前に表示したお手本"),
         li("設定した英語のレベル"),
-        li("会話の相手の名前（LINEの表示名。英訳で、相手の名前や愛称を you などに言い換えるために使います）"),
         li("読み上げる英文（お手本など）"),
         li(S.settings.sendContext
-          ? "前後のやり取り（前3件・後ろ2件。相手の発言を含みます。設定でオフにできます）"
-          : "前後のやり取り：今の設定では送りません（設定でオンにすると、前3件・後ろ2件を相手の発言も含めて送ります）")),
+          ? "前後のやり取り（相手の発言を含む前3件・後ろ2件のうち、確認画面でチェックしたもの。設定でオフにできます）"
+          : "前後のやり取り：今の設定では送りません（オンにすると、前3件・後ろ2件のうち確認画面でチェックしたものを送ります）")),
+      h("p", { class: "note", style: "margin:8px 0 0" }, "会話の相手の名前（LINEの表示名）は送りません。"),
       h("p", { class: "note", style: "margin:12px 0 0" }, "運営者のサーバーには、これらを保存しません。OpenAI社・Google社での取り扱いは、各社のポリシー（",
         h("a", { href: "https://openai.com/policies/", target: "_blank", rel: "noopener" }, "openai.com/policies"), "、",
         h("a", { href: "https://cloud.google.com/terms/cloud-privacy-notice", target: "_blank", rel: "noopener" }, "Google Cloud のプライバシー通知"), "）に従います。"),
@@ -1563,7 +1691,7 @@ function viewSettings() {
     h("section", { style: "border-top:0;padding-top:4px" }, h("h2", null, "アカウント"), account),
     h("section", null, h("h2", null, "翻訳と採点"),
       h("div", { class: "row-set" }, h("span", null, "前後のやり取りも踏まえて訳す"), sw(st.sendContext, "前後のやり取りも踏まえて訳す", () => { st.sendContext = !st.sendContext; persistSettings(); })),
-      h("p", { class: "note", style: "margin:8px 0 0" }, "オンにすると、対象の発言の前3件・後ろ2件（同じ日のやり取り）も、相手の発言を含めてAIに送ります。")),
+      h("p", { class: "note", style: "margin:8px 0 0" }, "オンにすると、問題にする発言の前後（同じ日の前3件・後ろ2件）も練習前の確認画面に並び、チェックしたものだけAIに送ります。相手の発言も含みます。")),
     h("section", null, h("h2", null, "あなたの英語レベル"),
       h("div", { class: "seg" }, Object.entries(LEVELS).map(([k, v]) => h("button", { class: "plain", type: "button", "aria-pressed": String(levelKey() === k),
         onclick: () => { st.level = k; persistSettings(); skippedNow.clear(); S.plan = null; render(); } }, v.name))),
@@ -1598,7 +1726,7 @@ function viewSettings() {
       note("学習・回答データは端末側で暗号化した上でサーバーに保存されます。運営者であっても内容は閲覧できません。なお、復元キーを紛失された場合、運営側からデータを復元することはできませんのでご注意ください。"),
       h("h3", { class: "data-h" }, "外部AI（OpenAI API・Google Cloud）との連携"),
       // 前後の文脈は、設定でオフにしているときは送らないので、文面からも外す
-      note(`採点やお手本の作成にあたり、ユーザーの発言や回答、過去の提示例、設定レベル、会話の相手の名前${st.sendContext ? "、前後の文脈" : ""}が、運営サーバーを経由してOpenAI社のAPIへ一時送信されます。読み上げの音声の作成にあたり、お手本などの英文が、運営サーバーを経由してGoogle社のAPI（Cloud Text-to-Speech）へ一時送信されます。これらのデータが運営サーバーに残ることはありません。`),
+      note(`採点やお手本の作成にあたり、練習前の確認画面でチェックしたユーザーの発言${st.sendContext ? "と前後の文脈" : ""}、回答、過去の提示例、設定レベルが、運営サーバーを経由してOpenAI社のAPIへ一時送信されます。会話の相手の名前は送信しません。読み上げの音声の作成にあたり、お手本などの英文が、運営サーバーを経由してGoogle社のAPI（Cloud Text-to-Speech）へ一時送信されます。これらのデータが運営サーバーに残ることはありません。`),
       note("読み上げの音声はAIによる合成音声です。作成した音声はお使いの端末内に保存し、繰り返し使います。"),
       h("h3", { class: "data-h" }, "AI出力に関する注意事項"),
       note("AIによる模範解答や採点結果は誤りを含む場合があります。あくまで参考情報としてご利用ください。"),
@@ -1628,12 +1756,13 @@ function cardPayload(id) {
 const logKey = e => e.id + "|" + e.t + "|" + e.k;
 const cloudHooks = {
   store: Store,
-  changed(quiet) { if (!S.ready) return; if (quiet && S.view === "quiz") return; if (S.view !== "quiz") render(); },
+  // 問題の途中と、送る前の確認の途中は、選んでいる内容やスクロール位置を崩さないよう描き直さない
+  changed(quiet) { if (!S.ready) return; const busy = S.view === "quiz" || S.view === "review"; if (quiet && busy) return; if (!busy) render(); },
   cardIds: () => Object.keys(S.cards),
   dayKeys: () => [...new Set(S.log.map(e => dayKey(e.t)))],
   cardPayload,
   dayEvents: day => S.log.filter(e => dayKey(e.t) === day),
-  metaPayload: () => ({ at: S.metaAt, wipedAt: S.wipedAt, settings: { newPerDay: S.settings.newPerDay, rate: S.settings.rate, autoSpeak: S.settings.autoSpeak, sendContext: S.settings.sendContext, level: S.settings.level } }),
+  metaPayload: () => ({ at: S.metaAt, wipedAt: S.wipedAt, blocked: [...S.blocked].slice(-5000), settings: { newPerDay: S.settings.newPerDay, rate: S.settings.rate, autoSpeak: S.settings.autoSpeak, sendContext: S.settings.sendContext, level: S.settings.level } }),
   async resetLocalLearning() {
     S.cards = {}; S.log = []; S.plan = null;
     await Store.set("cards", S.cards); await Store.set("log", S.log);
@@ -1659,6 +1788,11 @@ const cloudHooks = {
       const have = new Set(S.log.map(logKey));
       for (const d of days) for (const e of d.events || []) if (e && e.id && e.t && e.k && e.t > (S.wipedAt || 0) && !have.has(logKey(e))) { S.log.push(e); have.add(logKey(e)); changed = true; }
       S.log.sort((a, b) => a.t - b.t);
+    }
+    if (meta && Array.isArray(meta.blocked)) {
+      let added = 0;
+      for (const id of meta.blocked) if (typeof id === "string" && !S.blocked.has(id)) { S.blocked.add(id); added++; }
+      if (added) { LS.set(K.blocked, [...S.blocked]); changed = true; }
     }
     if (meta && meta.settings && (meta.at || 0) > (S.metaAt || 0)) {
       Object.assign(S.settings, meta.settings); S.metaAt = meta.at;
@@ -1691,6 +1825,8 @@ async function boot() {
   S.metaAt = LS.get(K.metaAt) || 0; S.wipedAt = LS.get(K.wipedAt) || 0;
   S.aiConsent = LS.get(K.aiConsent) || null;
   S.terms = LS.get(K.terms) || null;
+  const ok = LS.get(K.sendOk); if (ok && typeof ok === "object") S.sendOk = ok;
+  const bl = LS.get(K.blocked); if (Array.isArray(bl)) S.blocked = new Set(bl);
   render();
   await Store.init();
   let [pool, cards, log] = await Promise.all([Store.get("pool"), Store.get("cards"), Store.get("log")]);

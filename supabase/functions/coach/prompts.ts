@@ -8,7 +8,6 @@ export type CoachRequest = {
   ref?: string;
   level?: string;
   context?: Context;
-  people?: { who: string; name: string }[];
 };
 
 const LEVELS: Record<string, string> = {
@@ -32,15 +31,9 @@ function contextBlock(ja: string, ctx: Context): string {
 }
 
 // 会話の相手の名前（LINE の表示名）。英訳で、相手の名前や愛称を you などにするために使う
-function peopleBlock(req: CoachRequest): string {
-  const people = (Array.isArray(req.people) ? req.people : []).slice(0, 8)
-    .map(p => ({ who: WHO.test(String(p?.who)) ? String(p.who) : "", name: clip(p?.name, 40).trim() }))
-    .filter(p => p.who && p.name);
-  if (!people.length) return "";
-  return "This message was sent in a LINE chat to these people (their LINE display names; the learner may call them by a surname, a given name, or a nickname made from it):\n<<<\n"
-    + people.map(p => `${p.who}: ${p.name}`).join("\n") + "\n>>>\n"
-    + "Names of these people: when the Japanese message calls one of them by name, surname, given name or a nickname made from it (for example 山田君 or 太郎 for 山田太郎, たっくん for たくま), say \"you\" in English, or leave out a name used only to get their attention. If it is clearly an affectionate pet name between close people, you may use a natural English term of endearment that fits the relationship shown in the chat instead (honey or babe for a romantic partner, buddy or man for a close friend). Do the same when the message mentions them in the third person while talking to them (太郎も来る？ -> Are you coming too?). This applies to the model answer, the alternatives and the natural version. Write anyone else's name in romaji.\n\n";
-}
+// 会話の相手の名前（LINE の表示名）は端末から送らない（2026年10月、利用者の判断）。
+// そのため、名前の一覧は渡さず、呼びかけの名前を you などにする決まりだけを伝える
+const NAMES_RULE = "Names: this is a LINE message to the person or people in the chat. When the Japanese message calls the person it is talking to by name or nickname (for example 山田君、 or たっくん at the start of the message), say \"you\" in English, or leave out a name used only to get their attention. If it is clearly an affectionate pet name between close people, you may use a natural English term of endearment instead (honey or babe for a romantic partner, buddy for a close friend). If you cannot tell whether a name refers to the person being talked to, write it in romaji. This applies to the model answer, the alternatives and the natural version.\n\n";
 
 const SPOKEN = [
   "1. model: the most natural casual English a native speaker would say to a friend with the same meaning and tone, as if saying this message out loud. Keep it short. This app is for SPEAKING practice, so write only words that are actually pronounced: no lol, lmao, haha, emoji, emoticons or other text-only markers, and spell out texting abbreviations (by the way, not btw; I don't know, not idk). Do not translate 笑 / (笑) / w or stickers; if the laugh carries meaning, convey it with spoken words instead (for example I'm kidding, or that's hilarious). Write Japanese names in romaji.",
@@ -53,7 +46,7 @@ export function buildTeachPrompt(req: CoachRequest): string {
   return [
     "You are an English coach for a Japanese adult. They learn to SAY their OWN real LINE messages (casual texts to a friend) out loud in natural spoken English.",
     "",
-    peopleBlock(req) + contextBlock(ja, req.context ?? null) + "Japanese message they actually sent:",
+    NAMES_RULE + contextBlock(ja, req.context ?? null) + "Japanese message they actually sent:",
     "<<<" + ja + ">>>",
     "",
     "First decide whether this message is worth practicing for this learner.",
@@ -77,7 +70,7 @@ export function buildGradePrompt(req: CoachRequest): string {
   return [
     "You are an English coach for a Japanese adult. They practice SAYING their OWN real LINE messages (casual texts to a friend) out loud in natural spoken English.",
     "",
-    peopleBlock(req) + contextBlock(ja, req.context ?? null) + "Japanese message they actually sent:",
+    NAMES_RULE + contextBlock(ja, req.context ?? null) + "Japanese message they actually sent:",
     "<<<" + ja + ">>>",
     "",
     ref ? "Model answer they were shown before (keep it as the model answer unless it is clearly wrong or unnatural; drop any text-only parts such as lol, haha or emoji, and spell out texting abbreviations such as tmrw):\n<<<" + ref + ">>>\n" : "",
