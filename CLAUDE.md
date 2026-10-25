@@ -133,5 +133,6 @@ iPhone で使うときだけ必要：
 - 仕様は勝手に変えたり足したりしない。決まっていない点は、選択肢を示して利用者に確認する。
 - 送るデータや保存場所が変わる変更は、必ず事前に利用者に確認する。実装したら、設定画面の「データの取り扱いについて」の文言と、免責事項の文案の直しが必要なことも伝える。
 - コミットの前に `npm run build` が通ることを確かめる。
+- `src` を変えたら、`npx vite build` と `npx cap copy android` で Android の中の画面のファイル（`android/app/src/main/assets/public`）を更新してから、Android Studio で Run してもらう。Run だけでは画面は更新されない（プラグインを変えたときは `npx cap sync android`）。
 - 画面の流れは `test/index.test.html` で確かめる。Vite ではなく静的サーバー（例：`python -m http.server 8080`）で開く。確認コードは `123456`。
 - 指示文は `node --experimental-strip-types` で読み込んでテストできる（`prompts.ts` は外部を import しない作りにしている）。
